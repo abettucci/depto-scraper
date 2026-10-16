@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Deptos monitor</title><link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <header><h1>Deptos monitor</h1><p>Busquedas guardadas y novedades cada seis horas.</p></header>
+      <section id="auth"><h2>Ingresar</h2><input id="email" type="email" placeholder="email"><input id="password" type="password" placeholder="contraseña"><button id="email-login" type="button">Entrar</button><button id="email-signup" type="button">Crear cuenta</button><button id="google-login" type="button">Continuar con Google</button><p id="auth-message" role="status"></p></section>
+      <section id="app" hidden>
+        <div class="toolbar"><h2>Mis búsquedas</h2><button id="sign-out" type="button">Salir</button></div>
+        <form id="search-form">
+          <label>Nombre<input name="name" required maxlength="80" placeholder="2 amb. Palermo"></label>
+          <label>Operación<select name="operation"><option value="alquiler">Alquiler</option><option value="venta">Venta</option></select></label>
+          <label>Barrios/localidades<input name="locations" maxlength="500" placeholder="Palermo, Colegiales"></label>
+          <label>Precio máximo<input name="maxPrice" type="number" min="0"></label>
+          <label>Moneda<select name="currency"><option>ARS</option><option>USD</option></select></label>
+          <label>Ambientes mínimos<input name="minRooms" type="number" min="1" max="20"></label>
+          <label>Expensas máximas<input name="maxExpenses" type="number" min="0"></label>
+          <label><input name="petsAllowed" type="checkbox"> Acepta mascotas</label>
+          <label><input name="parking" type="checkbox"> Cochera</label>
+          <label>Radio km<input name="radiusKm" type="number" min="0.1" max="100" step="0.1"></label>
+          <label>Latitud centro<input name="centerLat" type="number" min="-90" max="90" step="any"></label>
+          <label>Longitud centro<input name="centerLng" type="number" min="-180" max="180" step="any"></label>
+          <label>Zona poligonal (GeoJSON)<textarea name="polygonGeojson" maxlength="20000" placeholder='{"type":"Polygon","coordinates":[...]}'></textarea></label>
+          <label>WhatsApp (números)<input name="chatId" pattern="[0-9]{8,20}" placeholder="54911..."></label>
+          <fieldset><legend>URLs de búsqueda</legend><label>Argenprop<input name="argenprop" type="url" placeholder="https://www.argenprop.com/..."/></label><label>Zonaprop<input name="zonaprop" type="url" placeholder="https://www.zonaprop.com.ar/..."/></label><label>Mercado Libre<input name="mercadolibre" type="url" placeholder="https://inmuebles.mercadolibre.com.ar/..."/></label><label>RE/MAX<input name="remax" type="url" placeholder="https://www.remax.com.ar/..."/></label></fieldset>
+          <button>Guardar búsqueda</button><p id="form-message" role="status"></p>
+        </form>
+        <section><h2>Historial</h2><div id="searches"></div></section>
+      </section>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="config.js"></script><script src="app.js"></script>
+  </body>
+</html>

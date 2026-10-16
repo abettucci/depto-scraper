@@ -1,0 +1,12 @@
+:root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background:#101522; color:#eef2ff; }
+body { margin:0; }
+main { max-width:960px; margin:auto; padding:32px 20px; }
+header { margin-bottom:28px; }
+section, form { background:#1a2233; border:1px solid #2b3853; border-radius:12px; padding:20px; margin:16px 0; }
+input, select, textarea, button { display:block; width:100%; box-sizing:border-box; padding:10px; margin:6px 0 14px; border-radius:7px; border:1px solid #425477; background:#101522; color:inherit; }
+button { width:auto; background:#7c3aed; border:0; cursor:pointer; }
+fieldset { border:1px solid #425477; margin:12px 0; }
+.toolbar { display:flex; justify-content:space-between; align-items:center; }
+.toolbar button { margin:0; }
+.search { border-top:1px solid #425477; padding:12px 0; }
+a { color:#c4b5fd; }
