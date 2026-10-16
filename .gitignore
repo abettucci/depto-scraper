@@ -5,4 +5,3 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 *.sqlite3
-web/config.js
