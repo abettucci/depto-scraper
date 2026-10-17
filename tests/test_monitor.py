@@ -38,6 +38,8 @@ class MonitorTests(unittest.TestCase):
 
         self.assertEqual(result["found"], 1)
         self.assertEqual(result["listings"][0]["title"], "2 amb Palermo")
+        self.assertEqual(result["source_diagnostics"][0]["status"], "ok")
+        self.assertEqual(result["source_diagnostics"][0]["listing_count"], 1)
 
     def test_builds_sources_from_portals_and_location(self):
         request = LiveSearchRequest.model_validate({"portals": ["argenprop", "zonaprop"], "filters": {"locations": ["CABA"]}})

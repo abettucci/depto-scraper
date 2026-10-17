@@ -4,6 +4,8 @@ import re
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal
+import logging
+from time import perf_counter
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -15,6 +17,7 @@ from .sources import fetch_source
 MAX_PORTALS = 4
 MAX_RESULTS = 24
 LIVE_FETCH_TIMEOUT_SECONDS = 20
+logger = logging.getLogger(__name__)
 
 
 class LiveSearchRequest(BaseModel):
@@ -52,14 +55,48 @@ def search_live(request: LiveSearchRequest) -> dict[str, Any]:
     sources = build_source_urls(request)
     listings: list[Listing] = []
     unavailable_portals: list[str] = []
+    source_diagnostics: dict[str, dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=len(sources)) as executor:
-        pending = {executor.submit(fetch_source, source, timeout_seconds=LIVE_FETCH_TIMEOUT_SECONDS): source for source in sources}
+        pending = {
+            executor.submit(fetch_source, source, timeout_seconds=LIVE_FETCH_TIMEOUT_SECONDS): (source, perf_counter())
+            for source in sources
+        }
         for future in as_completed(pending):
-            source = pending[future]
+            source, started_at = pending[future]
+            duration_ms = int((perf_counter() - started_at) * 1_000)
             try:
-                listings.extend(future.result())
-            except Exception:
+                source_listings = future.result()
+                listings.extend(source_listings)
+                status = "ok" if source_listings else "empty"
+                source_diagnostics[source.portal.value] = {
+                    "portal": source.portal.value,
+                    "status": status,
+                    "listing_count": len(source_listings),
+                    "duration_ms": duration_ms,
+                }
+                logger.warning(
+                    "live_source_finished portal=%s status=%s listing_count=%s duration_ms=%s",
+                    source.portal.value,
+                    status,
+                    len(source_listings),
+                    duration_ms,
+                )
+            except Exception as error:
                 unavailable_portals.append(source.portal.value)
+                http_status = getattr(getattr(error, "response", None), "status_code", None)
+                source_diagnostics[source.portal.value] = {
+                    "portal": source.portal.value,
+                    "status": "unavailable",
+                    "listing_count": 0,
+                    "duration_ms": duration_ms,
+                }
+                logger.warning(
+                    "live_source_failed portal=%s error_type=%s http_status=%s duration_ms=%s",
+                    source.portal.value,
+                    type(error).__name__,
+                    http_status if isinstance(http_status, int) else "none",
+                    duration_ms,
+                )
     filtered = [listing for listing in listings if matches_filters(listing, request.filters)]
     representatives = [choose_representative(group) for group in deduplicate(filtered)]
     visible_listings = representatives[:MAX_RESULTS]
@@ -68,6 +105,7 @@ def search_live(request: LiveSearchRequest) -> dict[str, Any]:
         "listings": [listing.model_dump(mode="json") for listing in visible_listings],
         "source_urls": [source.model_dump(mode="json") for source in sources],
         "unavailable_portals": unavailable_portals,
+        "source_diagnostics": [source_diagnostics[source.portal.value] for source in sources],
     }
 
 
