@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from http.server import BaseHTTPRequestHandler
 from typing import Any
+from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import ValidationError
 
 from depto_monitor.searches import LiveSearchRequest, search_live
 
 MAX_REQUEST_BYTES = 40_000
+logger = logging.getLogger(__name__)
 
 
 def preview_listings(payload: dict[str, Any]) -> dict[str, Any]:
@@ -28,9 +31,12 @@ class handler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, preview_listings(payload))
         except (json.JSONDecodeError, ValidationError, ValueError):
+            logger.info("live_search_rejected")
             self._send_json(400, {"message": "Revisá la localidad y los filtros de la búsqueda."})
-        except Exception:
-            self._send_json(502, {"message": "No se pudo consultar el portal ahora. Probá de nuevo más tarde."})
+        except Exception as error:
+            error_id = str(uuid4())
+            logger.warning("live_search_failed error_id=%s error_type=%s", error_id, type(error).__name__)
+            self._send_json(502, {"message": "No se pudo ejecutar la búsqueda ahora.", "error_id": error_id})
 
     def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         self._send_json(405, {"message": "Usá POST para ejecutar una búsqueda."})
