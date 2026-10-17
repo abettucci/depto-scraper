@@ -4,11 +4,5 @@
     "api/preview.py": {
       "maxDuration": 30
     }
-  },
-  "rewrites": [
-    { "source": "/", "destination": "/web/index.html" },
-    { "source": "/styles.css", "destination": "/web/styles.css" },
-    { "source": "/app.js", "destination": "/web/app.js" },
-    { "source": "/config.js", "destination": "/web/config.js" }
-  ]
+  }
 }

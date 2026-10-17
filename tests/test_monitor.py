@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from api.preview import preview_listings
+from api.preview import preview_listings, static_asset_for
 from depto_monitor.dedupe import deduplicate
 from depto_monitor.models import Listing, Portal, SearchFilters, SourceURL
 from depto_monitor.searches import LiveSearchRequest, build_source_urls, matches_filters
@@ -53,6 +53,12 @@ class MonitorTests(unittest.TestCase):
     def test_rejects_invalid_polygon_coordinates(self):
         with self.assertRaises(ValueError):
             SearchFilters(polygon_geojson={"type": "Polygon", "coordinates": [[[200, 0], [0, 0], [0, 1], [200, 0]]]})
+
+    def test_serves_only_allowlisted_static_assets(self):
+        asset = static_asset_for("/?source=vercel")
+        self.assertIsNotNone(asset)
+        self.assertEqual(asset[0].name, "index.html")
+        self.assertIsNone(static_asset_for("/../../.env"))
 
 
 if __name__ == "__main__":
