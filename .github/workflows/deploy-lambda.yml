@@ -76,6 +76,20 @@ jobs:
             -backend-config="key=production/terraform.tfstate" \
             -backend-config="region=$AWS_REGION" \
             -backend-config="encrypt=true"
+          import_if_missing() {
+            local address="$1"
+            local resource_id="$2"
+            terraform state show "$address" >/dev/null 2>&1 || terraform import -input=false "$address" "$resource_id"
+          }
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ARTIFACT_BUCKET="depto-scraper-lambda-artifacts-${ACCOUNT_ID}"
+          if aws s3api head-bucket --bucket "$ARTIFACT_BUCKET" 2>/dev/null; then
+            import_if_missing aws_s3_bucket.artifacts "$ARTIFACT_BUCKET"
+            import_if_missing aws_s3_bucket_public_access_block.artifacts "$ARTIFACT_BUCKET"
+          fi
+          if SECRET_ARN=$(aws secretsmanager describe-secret --secret-id depto-scraper/runtime --query ARN --output text 2>/dev/null); then
+            import_if_missing aws_secretsmanager_secret.runtime "$SECRET_ARN"
+          fi
           terraform fmt -check
           terraform validate
           terraform apply -input=false -auto-approve
