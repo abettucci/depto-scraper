@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import urlparse, urlsplit
 from uuid import uuid4
 
-from pydantic import BaseModel, ValidationError
+import requests
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from depto_monitor.searches import LiveSearchRequest, search_live
 
@@ -19,6 +22,22 @@ WEB_DIRECTORY = (Path(__file__).resolve().parent.parent / "web").resolve()
 
 class StaticAssetRequest(BaseModel):
     path: Literal["/", "/index.html", "/styles.css", "/app.js", "/config.js"]
+
+
+class LambdaPreviewConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=30, max_length=2048)
+    shared_secret: str = Field(min_length=32, max_length=4096)
+
+    @field_validator("url")
+    @classmethod
+    def validate_lambda_url(cls, value: str) -> str:
+        parsed = urlparse(value)
+        host = parsed.hostname or ""
+        if parsed.scheme != "https" or parsed.username or parsed.password or parsed.query or parsed.fragment or not re.fullmatch(r"[a-z0-9]+\.lambda-url\.[a-z0-9-]+\.on\.aws", host):
+            raise ValueError("SCRAPER_LAMBDA_URL no es una Function URL válida")
+        return value.rstrip("/")
 
 
 STATIC_ASSETS = {
@@ -32,6 +51,33 @@ STATIC_ASSETS = {
 
 def preview_listings(payload: dict[str, Any]) -> dict[str, Any]:
     return search_live(LiveSearchRequest.model_validate(payload))
+
+
+def proxy_preview_to_lambda(payload: dict[str, Any]) -> dict[str, Any]:
+    config = LambdaPreviewConfig.model_validate(
+        {
+            "url": os.getenv("SCRAPER_LAMBDA_URL"),
+            "shared_secret": os.getenv("SCRAPER_LAMBDA_SHARED_SECRET"),
+        }
+    )
+    response = requests.post(
+        config.url,
+        headers={"Authorization": f"Bearer {config.shared_secret}"},
+        json=payload,
+        timeout=25,
+        allow_redirects=False,
+    )
+    response.raise_for_status()
+    result = response.json()
+    if not isinstance(result, dict):
+        raise ValueError("La respuesta de la búsqueda no es válida")
+    return result
+
+
+def execute_preview(payload: dict[str, Any]) -> dict[str, Any]:
+    if os.getenv("SCRAPER_LAMBDA_URL"):
+        return proxy_preview_to_lambda(payload)
+    return preview_listings(payload)
 
 
 def static_asset_for(request_target: str) -> tuple[Path, str] | None:
@@ -62,7 +108,7 @@ class handler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 self._send_json(400, {"message": "La solicitud no es válida."})
                 return
-            self._send_json(200, preview_listings(payload))
+            self._send_json(200, execute_preview(payload))
         except (json.JSONDecodeError, ValidationError, ValueError):
             logger.info("live_search_rejected")
             self._send_json(400, {"message": "Revisá la localidad y los filtros de la búsqueda."})

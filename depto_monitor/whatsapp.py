@@ -8,9 +8,16 @@ import requests
 from .models import Listing, is_allowed_host
 
 
-def send_summary(chat_id: str, search_name: str, changes: dict[str, list[Listing]]) -> bool:
-    sidecar_url = (os.getenv("WHATSAPP_SIDECAR_URL") or "").rstrip("/")
-    secret = os.getenv("WAWEB_SHARED_SECRET") or ""
+def send_summary(
+    chat_id: str,
+    search_name: str,
+    changes: dict[str, list[Listing]],
+    *,
+    sidecar_url: str | None = None,
+    secret: str | None = None,
+) -> bool:
+    sidecar_url = (sidecar_url or os.getenv("WHATSAPP_SIDECAR_URL") or "").rstrip("/")
+    secret = secret or os.getenv("WAWEB_SHARED_SECRET") or ""
     parsed = urlparse(sidecar_url)
     if not sidecar_url or parsed.scheme != "https" or not parsed.hostname or not is_allowed_host(parsed.hostname, ("up.railway.app",)):
         raise ValueError("WHATSAPP_SIDECAR_URL debe ser HTTPS y pertenecer al sidecar Railway")

@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import patch
 
@@ -6,6 +7,7 @@ from depto_monitor.dedupe import deduplicate
 from depto_monitor.models import Listing, Portal, SearchFilters, SourceURL
 from depto_monitor.searches import LiveSearchRequest, build_source_urls, matches_filters
 from depto_monitor.whatsapp import format_summary
+from lambda_function import RuntimeSettings, handler as lambda_handler
 
 
 def listing(source: Portal, url: str) -> Listing:
@@ -61,6 +63,29 @@ class MonitorTests(unittest.TestCase):
         self.assertIsNotNone(asset)
         self.assertEqual(asset[0].name, "index.html")
         self.assertIsNone(static_asset_for("/../../.env"))
+
+    @patch("lambda_function.search_live")
+    @patch("lambda_function.load_runtime_settings")
+    def test_lambda_preview_requires_secret_and_returns_results(self, load_runtime_settings, search_live):
+        load_runtime_settings.return_value = RuntimeSettings(
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="x" * 20,
+            preview_shared_secret="s" * 32,
+        )
+        search_live.return_value = {"found": 0, "listings": []}
+        event = {
+            "requestContext": {"http": {"method": "POST"}},
+            "headers": {"authorization": f"Bearer {'s' * 32}"},
+            "body": '{"portals":["zonaprop"],"filters":{"locations":["Palermo"]}}',
+            "isBase64Encoded": False,
+        }
+
+        response = lambda_handler(event, None)
+
+        self.assertEqual(response["statusCode"], 200)
+        self.assertEqual(json.loads(response["body"])["found"], 0)
+        event["headers"] = {}
+        self.assertEqual(lambda_handler(event, None)["statusCode"], 401)
 
 
 if __name__ == "__main__":
