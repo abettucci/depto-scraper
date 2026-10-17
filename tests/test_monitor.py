@@ -1,5 +1,7 @@
 import unittest
+from unittest.mock import patch
 
+from api.preview import preview_listings
 from depto_monitor.dedupe import deduplicate
 from depto_monitor.models import Listing, Portal, SourceURL
 from depto_monitor.whatsapp import format_summary
@@ -21,6 +23,20 @@ class MonitorTests(unittest.TestCase):
 
     def test_summary_is_empty_without_changes(self):
         self.assertEqual(format_summary("Palermo", {}), "")
+
+    def test_preview_rejects_a_url_outside_the_selected_portal(self):
+        with self.assertRaises(ValueError):
+            preview_listings({"portal": "zonaprop", "url": "https://example.com/results"})
+
+    @patch("api.preview.fetch_source")
+    def test_preview_returns_serializable_listings(self, fetch_source):
+        source_url = "https://www.zonaprop.com.ar/alquileres.html"
+        fetch_source.return_value = [listing(Portal.ZONAPROP, source_url)]
+
+        result = preview_listings({"portal": "zonaprop", "url": source_url})
+
+        self.assertEqual(result["found"], 1)
+        self.assertEqual(result["listings"][0]["title"], "2 amb Palermo")
 
 
 if __name__ == "__main__":

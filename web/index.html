@@ -6,8 +6,18 @@
   </head>
   <body>
     <main>
-      <header><h1>Deptos monitor</h1><p>Busquedas guardadas y novedades cada seis horas.</p></header>
-      <section id="auth"><h2>Ingresar</h2><input id="email" type="email" placeholder="email"><input id="password" type="password" placeholder="contraseña"><button id="email-login" type="button">Entrar</button><button id="email-signup" type="button">Crear cuenta</button><button id="google-login" type="button">Continuar con Google</button><p id="auth-message" role="status"></p></section>
+      <header><h1>Deptos monitor</h1><p>Probá avisos en vivo, guardá tus búsquedas y recibí novedades cada seis horas.</p></header>
+      <section id="preview">
+        <div class="section-heading"><div><p class="eyebrow">Sin cuenta</p><h2>Probar una búsqueda en vivo</h2><p>Consulta una URL ahora. Esta prueba no guarda nada ni envía WhatsApp.</p></div></div>
+        <form id="preview-form" class="preview-form">
+          <label>Portal<select name="portal"><option value="argenprop">Argenprop</option><option value="zonaprop">Zonaprop</option><option value="mercadolibre">Mercado Libre</option><option value="remax">RE/MAX</option></select></label>
+          <label>URL de resultados<input name="url" type="url" required maxlength="2048" placeholder="https://www.zonaprop.com.ar/..." inputmode="url"></label>
+          <button id="preview-submit" type="submit">Probar ahora</button>
+        </form>
+        <p id="preview-message" class="status" role="status"></p>
+        <div id="preview-results" class="preview-results" aria-live="polite"></div>
+      </section>
+      <section id="auth"><h2>Ingresar</h2><p class="muted">La cuenta solo es necesaria para guardar búsquedas e historial.</p><div class="auth-fields"><input id="email" type="email" autocomplete="email" placeholder="email"><input id="password" type="password" autocomplete="current-password" placeholder="contraseña (mínimo 6 caracteres)"></div><div class="button-row"><button id="email-login" type="button">Entrar</button><button id="email-signup" type="button">Crear cuenta</button><button id="google-login" type="button">Continuar con Google</button></div><p id="auth-message" class="status" role="status"></p></section>
       <section id="app" hidden>
         <div class="toolbar"><h2>Mis búsquedas</h2><button id="sign-out" type="button">Salir</button></div>
         <form id="search-form">
@@ -26,7 +36,7 @@
           <label>Zona poligonal (GeoJSON)<textarea name="polygonGeojson" maxlength="20000" placeholder='{"type":"Polygon","coordinates":[...]}'></textarea></label>
           <label>WhatsApp (números)<input name="chatId" pattern="[0-9]{8,20}" placeholder="54911..."></label>
           <fieldset><legend>URLs de búsqueda</legend><label>Argenprop<input name="argenprop" type="url" placeholder="https://www.argenprop.com/..."/></label><label>Zonaprop<input name="zonaprop" type="url" placeholder="https://www.zonaprop.com.ar/..."/></label><label>Mercado Libre<input name="mercadolibre" type="url" placeholder="https://inmuebles.mercadolibre.com.ar/..."/></label><label>RE/MAX<input name="remax" type="url" placeholder="https://www.remax.com.ar/..."/></label></fieldset>
-          <button>Guardar búsqueda</button><p id="form-message" role="status"></p>
+          <button>Guardar búsqueda</button><p id="form-message" class="status" role="status"></p>
         </form>
         <section><h2>Historial</h2><div id="searches"></div></section>
       </section>
