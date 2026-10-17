@@ -1,0 +1,47 @@
+name: Cleanup failed AWS deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Delete partial deployment resources
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          delete_bucket() {
+            local bucket="$1"
+            if ! aws s3api head-bucket --bucket "$bucket" 2>/dev/null; then
+              echo "Bucket not found: $bucket"
+              return
+            fi
+            while true; do
+              local objects
+              objects=$(aws s3api list-object-versions --bucket "$bucket" --output json | jq -c '[((.Versions // []) + (.DeleteMarkers // []))[] | {Key, VersionId}]')
+              [ "$objects" = '[]' ] && break
+              aws s3api delete-objects --bucket "$bucket" --delete "$(jq -cn --argjson objects "$objects" '{Objects:$objects,Quiet:true}')" >/dev/null
+            done
+            aws s3api delete-bucket --bucket "$bucket"
+            echo "Deleted bucket: $bucket"
+          }
+          delete_bucket "depto-scraper-lambda-artifacts-${ACCOUNT_ID}"
+          delete_bucket "depto-scraper-terraform-state-${ACCOUNT_ID}"
+          if aws secretsmanager describe-secret --secret-id depto-scraper/runtime >/dev/null 2>&1; then
+            aws secretsmanager delete-secret --secret-id depto-scraper/runtime --force-delete-without-recovery >/dev/null
+            echo "Deleted secret: depto-scraper/runtime"
+          fi
