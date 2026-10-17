@@ -61,6 +61,8 @@ class SearchFilters(BaseModel):
     currency: str = Field(default="ARS", pattern=r"^(ARS|USD)$")
     min_rooms: int | None = Field(default=None, ge=1, le=20)
     max_rooms: int | None = Field(default=None, ge=1, le=20)
+    min_m2: Decimal | None = Field(default=None, ge=1, le=10_000)
+    max_m2: Decimal | None = Field(default=None, ge=1, le=10_000)
     max_expenses: Decimal | None = Field(default=None, ge=0, le=99_999_999_999)
     pets_allowed: bool | None = None
     parking: bool | None = None
@@ -80,12 +82,39 @@ class SearchFilters(BaseModel):
             cleaned.append(value)
         return cleaned
 
+    @field_validator("polygon_geojson")
+    @classmethod
+    def validate_polygon(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return value
+        geometry_type = value.get("type") if isinstance(value, dict) else None
+        coordinates = value.get("coordinates") if isinstance(value, dict) else None
+        polygons = [coordinates] if geometry_type == "Polygon" else coordinates if geometry_type == "MultiPolygon" else None
+        if not isinstance(polygons, list) or len(polygons) > 10:
+            raise ValueError("la zona debe ser un polígono GeoJSON válido")
+        points = 0
+        for polygon in polygons:
+            if not isinstance(polygon, list) or not polygon:
+                raise ValueError("la zona debe ser un polígono GeoJSON válido")
+            for ring in polygon:
+                if not isinstance(ring, list) or len(ring) < 4:
+                    raise ValueError("la zona debe tener al menos tres vértices")
+                points += len(ring)
+                for point in ring:
+                    if not isinstance(point, list) or len(point) < 2 or not isinstance(point[0], (int, float)) or not isinstance(point[1], (int, float)) or not -180 <= point[0] <= 180 or not -90 <= point[1] <= 90:
+                        raise ValueError("la zona tiene coordenadas inválidas")
+        if points > 300:
+            raise ValueError("la zona tiene demasiados vértices")
+        return value
+
     @model_validator(mode="after")
     def validate_ranges(self) -> "SearchFilters":
         if self.min_price is not None and self.max_price is not None and self.min_price > self.max_price:
             raise ValueError("min_price no puede superar max_price")
         if self.min_rooms is not None and self.max_rooms is not None and self.min_rooms > self.max_rooms:
             raise ValueError("min_rooms no puede superar max_rooms")
+        if self.min_m2 is not None and self.max_m2 is not None and self.min_m2 > self.max_m2:
+            raise ValueError("min_m2 no puede superar max_m2")
         if (self.center_lat is None) != (self.center_lng is None):
             raise ValueError("center_lat y center_lng deben indicarse juntos")
         if self.radius_km is not None and self.center_lat is None:

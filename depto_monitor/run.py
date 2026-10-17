@@ -6,6 +6,7 @@ import os
 from dotenv import load_dotenv
 
 from .sources import fetch_source
+from .searches import matches_filters
 from .store import SupabaseStore
 from .whatsapp import send_summary
 
@@ -25,7 +26,7 @@ def main() -> None:
                 source_succeeded = True
             except Exception as error:
                 logger.warning("source_fetch_failed portal=%s error_type=%s", source.portal.value, type(error).__name__)
-        changes = store.record_run(search, listings, source_succeeded)
+        changes = store.record_run(search, [listing for listing in listings if matches_filters(listing, search.filters)], source_succeeded)
         chat_id = search.notify_chat_id or os.getenv("DEFAULT_WHATSAPP_CHAT_ID")
         if chat_id and any(changes.values()):
             send_summary(chat_id, search.name, changes)

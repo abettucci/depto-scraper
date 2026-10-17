@@ -6,32 +6,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from depto_monitor.models import Portal, SourceURL
-from depto_monitor.sources import fetch_source
+from depto_monitor.searches import LiveSearchRequest, search_live
 
-MAX_REQUEST_BYTES = 4_096
-MAX_PREVIEW_RESULTS = 12
-
-
-class PreviewRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    portal: Portal
-    url: str = Field(min_length=12, max_length=2_048)
-
-    def source(self) -> SourceURL:
-        return SourceURL(portal=self.portal, url=self.url)
+MAX_REQUEST_BYTES = 40_000
 
 
 def preview_listings(payload: dict[str, Any]) -> dict[str, Any]:
-    request = PreviewRequest.model_validate(payload)
-    listings = fetch_source(request.source())
-    visible_listings = listings[:MAX_PREVIEW_RESULTS]
-    return {
-        "portal": request.portal.value,
-        "found": len(listings),
-        "listings": [listing.model_dump(mode="json") for listing in visible_listings],
-    }
+    return search_live(LiveSearchRequest.model_validate(payload))
 
 
 class handler(BaseHTTPRequestHandler):
@@ -47,12 +28,12 @@ class handler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, preview_listings(payload))
         except (json.JSONDecodeError, ValidationError, ValueError):
-            self._send_json(400, {"message": "Indicá una URL HTTPS válida para el portal elegido."})
+            self._send_json(400, {"message": "Revisá la localidad y los filtros de la búsqueda."})
         except Exception:
             self._send_json(502, {"message": "No se pudo consultar el portal ahora. Probá de nuevo más tarde."})
 
     def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
-        self._send_json(405, {"message": "Usá POST para probar una búsqueda."})
+        self._send_json(405, {"message": "Usá POST para ejecutar una búsqueda."})
 
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
         encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")

@@ -15,9 +15,9 @@ MAX_RESPONSE_BYTES = 2_000_000
 JSON_LD_SCRIPT = re.compile(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', re.IGNORECASE | re.DOTALL)
 
 
-def fetch_source(source: SourceURL, session: requests.Session | None = None) -> list[Listing]:
+def fetch_source(source: SourceURL, session: requests.Session | None = None, timeout_seconds: int = REQUEST_TIMEOUT_SECONDS) -> list[Listing]:
     client = session or requests.Session()
-    response = client.get(source.url, headers={"User-Agent": "depto-monitor/1.0 (personal search monitor)"}, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True)
+    response = client.get(source.url, headers={"User-Agent": "depto-monitor/1.0 (personal search monitor)"}, timeout=timeout_seconds, allow_redirects=False, stream=True)
     response.raise_for_status()
     if response.headers.get("content-type", "").split(";", 1)[0].lower() not in {"text/html", "application/xhtml+xml"}:
         raise ValueError("la fuente no devolvio HTML")
