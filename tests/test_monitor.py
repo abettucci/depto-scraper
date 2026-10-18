@@ -64,6 +64,20 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(asset[0].name, "index.html")
         self.assertIsNone(static_asset_for("/../../.env"))
 
+    def test_runtime_settings_accept_empty_optional_whatsapp_values(self):
+        settings = RuntimeSettings(
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="x" * 20,
+            preview_shared_secret="s" * 32,
+            whatsapp_sidecar_url="",
+            waweb_shared_secret="   ",
+            default_whatsapp_chat_id="",
+        )
+
+        self.assertIsNone(settings.whatsapp_sidecar_url)
+        self.assertIsNone(settings.waweb_shared_secret)
+        self.assertIsNone(settings.default_whatsapp_chat_id)
+
     @patch("lambda_function.search_live")
     @patch("lambda_function.load_runtime_settings")
     def test_lambda_preview_requires_secret_and_returns_results(self, load_runtime_settings, search_live):
