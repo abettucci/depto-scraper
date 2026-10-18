@@ -53,7 +53,7 @@ function setupPreview() {
       const response = await fetch("/api/preview", { method: "POST", body: JSON.stringify({ portals, filters }) });
       const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error_id ? `${data.message} Código: ${data.error_id}` : data.message || "No se pudo ejecutar la búsqueda ahora.");
       storePendingSearch({ filters, sourceUrls: data.source_urls }); renderPreview(data.listings);
-      const diagnostics = (data.source_diagnostics || []).map(({ portal, status, listing_count: count }) => `${portal}: ${status === "unavailable" ? "sin respuesta" : `${count} extraídos`}`).join(" · ");
+      const diagnostics = (data.source_diagnostics || []).map(({ portal, status, listing_count: count, matching_count: matchingCount }) => status === "unavailable" ? `${portal}: sin respuesta` : `${portal}: ${count} extraídos${typeof matchingCount === "number" ? `, ${matchingCount} con filtros` : ""}`).join(" · ");
       const diagnosticMessage = diagnostics ? ` Estado: ${diagnostics}.` : "";
       message("preview-message", data.found ? `Encontré ${data.found} avisos únicos.${diagnosticMessage}` : `No encontré avisos con esos filtros.${diagnosticMessage}`);
     } catch (error) { message("preview-message", error.message || "No se pudo ejecutar la búsqueda ahora. Probá de nuevo más tarde."); }

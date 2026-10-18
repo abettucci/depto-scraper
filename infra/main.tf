@@ -72,7 +72,7 @@ resource "aws_iam_role_policy" "lambda_runtime_secret" {
     Version = "2012-10-17"
     Statement = [{
       Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
+      Action   = ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue"]
       Resource = aws_secretsmanager_secret.runtime.arn
     }]
   })

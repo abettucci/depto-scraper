@@ -30,6 +30,8 @@ class RuntimeSettings(BaseModel):
     meli_client_id: str | None = Field(default=None, min_length=1, max_length=256)
     meli_client_secret: str | None = Field(default=None, min_length=8, max_length=4096)
     meli_refresh_token: str | None = Field(default=None, min_length=16, max_length=4096)
+    meli_access_token: str | None = Field(default=None, min_length=16, max_length=4096)
+    meli_access_token_expires_at: int | None = Field(default=None, ge=0, le=4_102_444_800)
 
     @field_validator(
         "whatsapp_sidecar_url",
@@ -38,6 +40,7 @@ class RuntimeSettings(BaseModel):
         "meli_client_id",
         "meli_client_secret",
         "meli_refresh_token",
+        "meli_access_token",
         mode="before",
     )
     @classmethod
@@ -54,6 +57,8 @@ class RuntimeSettings(BaseModel):
             client_id=self.meli_client_id,
             client_secret=self.meli_client_secret,
             refresh_token=self.meli_refresh_token,
+            access_token=self.meli_access_token,
+            access_token_expires_at=self.meli_access_token_expires_at,
         )
 
 
@@ -68,14 +73,16 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
 def _run_scheduled_monitor() -> dict[str, Any]:
     try:
         settings = load_runtime_settings()
+        mercado_libre_credentials = settings.mercado_libre_credentials()
         result = run_monitor(
             supabase_url=settings.supabase_url,
             supabase_service_role_key=settings.supabase_service_role_key,
             whatsapp_sidecar_url=settings.whatsapp_sidecar_url,
             waweb_shared_secret=settings.waweb_shared_secret,
             default_whatsapp_chat_id=settings.default_whatsapp_chat_id,
-            mercado_libre_credentials=settings.mercado_libre_credentials(),
+            mercado_libre_credentials=mercado_libre_credentials,
         )
+        _persist_mercado_libre_tokens(settings, mercado_libre_credentials)
         logger.warning("scheduled_monitor_finished searches=%s", result["searches"])
         return _response(200, {"message": "Monitor ejecutado."})
     except Exception as error:
@@ -90,12 +97,15 @@ def _handle_preview(event: dict[str, Any]) -> dict[str, Any]:
         if not _has_valid_bearer(event.get("headers"), settings.preview_shared_secret):
             return _response(401, {"message": "No autorizado."})
         payload = _parse_body(event)
+        mercado_libre_credentials = settings.mercado_libre_credentials()
+        result = search_live(
+            LiveSearchRequest.model_validate(payload),
+            mercado_libre_credentials=mercado_libre_credentials,
+        )
+        _persist_mercado_libre_tokens(settings, mercado_libre_credentials)
         return _response(
             200,
-            search_live(
-                LiveSearchRequest.model_validate(payload),
-                mercado_libre_credentials=settings.mercado_libre_credentials(),
-            ),
+            result,
         )
     except (json.JSONDecodeError, ValidationError, ValueError):
         logger.info("lambda_preview_rejected")
@@ -114,6 +124,20 @@ def load_runtime_settings() -> RuntimeSettings:
 
     raw_secret = boto3.client("secretsmanager").get_secret_value(SecretId=secret_arn)["SecretString"]
     return RuntimeSettings.model_validate_json(raw_secret)
+
+
+def _persist_mercado_libre_tokens(settings: RuntimeSettings, credentials: MercadoLibreCredentials | None) -> None:
+    if credentials is None or not credentials.token_refreshed:
+        return
+    secret_arn = os.getenv("RUNTIME_SECRET_ARN", "")
+    if not secret_arn:
+        raise ValueError("RUNTIME_SECRET_ARN es obligatorio")
+    settings.meli_refresh_token = credentials.refresh_token.get_secret_value()
+    settings.meli_access_token = credentials.access_token.get_secret_value() if credentials.access_token else None
+    settings.meli_access_token_expires_at = credentials.access_token_expires_at
+    import boto3
+
+    boto3.client("secretsmanager").put_secret_value(SecretId=secret_arn, SecretString=settings.model_dump_json())
 
 
 def _has_valid_bearer(headers: Any, expected_secret: str) -> bool:

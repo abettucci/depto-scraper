@@ -4,11 +4,12 @@ import json
 import math
 import re
 from html import unescape
+from time import time
 from typing import Any
 from urllib.parse import urljoin
 
 import requests
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr
 
 from .models import Listing, Portal, SearchFilters, SourceURL, validate_portal_url
 
@@ -28,12 +29,37 @@ class SourceUnavailableError(RuntimeError):
     """The configured source cannot be queried in the current runtime."""
 
 
+class SourceHTTPError(RuntimeError):
+    def __init__(self, stage: str, response: requests.Response):
+        super().__init__("la fuente respondió con un error HTTP")
+        self.stage = stage
+        self.response = response
+
+
 class MercadoLibreCredentials(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     client_id: str = Field(min_length=1, max_length=256)
     client_secret: SecretStr = Field(min_length=8, max_length=4096)
     refresh_token: SecretStr = Field(min_length=16, max_length=4096)
+    access_token: SecretStr | None = Field(default=None, min_length=16, max_length=4096)
+    access_token_expires_at: int | None = Field(default=None, ge=0, le=4_102_444_800)
+    _token_refreshed: bool = PrivateAttr(default=False)
+
+    def usable_access_token(self) -> str | None:
+        if self.access_token is None or self.access_token_expires_at is None:
+            return None
+        return self.access_token.get_secret_value() if self.access_token_expires_at > int(time()) + 60 else None
+
+    def update_tokens(self, access_token: str, refresh_token: str, expires_in: int) -> None:
+        self.access_token = SecretStr(access_token)
+        self.refresh_token = SecretStr(refresh_token)
+        self.access_token_expires_at = int(time()) + expires_in
+        self._token_refreshed = True
+
+    @property
+    def token_refreshed(self) -> bool:
+        return self._token_refreshed
 
 
 def fetch_source(
@@ -73,19 +99,21 @@ def _fetch_mercado_libre(
     client: requests.Session,
     timeout_seconds: int,
 ) -> list[Listing]:
-    token_response = client.post(
-        MELI_TOKEN_URL,
-        data={
-            "grant_type": "refresh_token",
-            "client_id": credentials.client_id,
-            "client_secret": credentials.client_secret.get_secret_value(),
-            "refresh_token": credentials.refresh_token.get_secret_value(),
-        },
-        timeout=timeout_seconds,
-        allow_redirects=False,
-        stream=True,
-    )
-    access_token = _read_access_token(token_response)
+    access_token = credentials.usable_access_token()
+    if access_token is None:
+        token_response = client.post(
+            MELI_TOKEN_URL,
+            data={
+                "grant_type": "refresh_token",
+                "client_id": credentials.client_id,
+                "client_secret": credentials.client_secret.get_secret_value(),
+                "refresh_token": credentials.refresh_token.get_secret_value(),
+            },
+            timeout=timeout_seconds,
+            allow_redirects=False,
+            stream=True,
+        )
+        access_token = _refresh_mercado_libre_tokens(token_response, credentials)
     response = client.get(
         MELI_SEARCH_URL,
         params=_mercado_libre_params(filters),
@@ -94,7 +122,7 @@ def _fetch_mercado_libre(
         allow_redirects=False,
         stream=True,
     )
-    payload = _read_json_response(response)
+    payload = _read_json_response(response, stage="mercadolibre_search")
     raw_results = payload.get("results")
     if not isinstance(raw_results, list):
         raise ValueError("la respuesta de Mercado Libre no tiene resultados válidos")
@@ -102,11 +130,14 @@ def _fetch_mercado_libre(
     return [listing for listing in listings if listing is not None]
 
 
-def _read_access_token(response: requests.Response) -> str:
-    payload = _read_json_response(response)
+def _refresh_mercado_libre_tokens(response: requests.Response, credentials: MercadoLibreCredentials) -> str:
+    payload = _read_json_response(response, stage="mercadolibre_oauth")
     access_token = payload.get("access_token")
-    if not isinstance(access_token, str) or len(access_token) < 16:
+    refresh_token = payload.get("refresh_token")
+    expires_in = payload.get("expires_in")
+    if not isinstance(access_token, str) or len(access_token) < 16 or not isinstance(refresh_token, str) or len(refresh_token) < 16 or not isinstance(expires_in, int) or not 60 <= expires_in <= 86_400:
         raise ValueError("Mercado Libre no devolvió un token válido")
+    credentials.update_tokens(access_token, refresh_token, expires_in)
     return access_token
 
 
@@ -136,7 +167,7 @@ def _fetch_remax(source: SourceURL, filters: SearchFilters, client: requests.Ses
             allow_redirects=False,
             stream=True,
         )
-        payload = _read_json_response(response)
+        payload = _read_json_response(response, stage="remax_listings")
         data = payload.get("data")
         raw_listings = data.get("data") if isinstance(data, dict) else None
         if not isinstance(raw_listings, list):
@@ -168,8 +199,11 @@ def _remax_params(filters: SearchFilters, page: int) -> list[tuple[str, str | in
     return params
 
 
-def _read_json_response(response: requests.Response) -> dict[str, Any]:
-    response.raise_for_status()
+def _read_json_response(response: requests.Response, *, stage: str) -> dict[str, Any]:
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as error:
+        raise SourceHTTPError(stage, response) from error
     content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
     if content_type not in {"application/json", "application/problem+json"}:
         raise ValueError("la fuente no devolvió JSON")

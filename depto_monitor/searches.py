@@ -77,23 +77,27 @@ def search_live(
             try:
                 source_listings = future.result()
                 listings.extend(source_listings)
+                matching_count = sum(matches_filters(listing, request.filters) for listing in source_listings)
                 status = "ok" if source_listings else "empty"
                 source_diagnostics[source.portal.value] = {
                     "portal": source.portal.value,
                     "status": status,
                     "listing_count": len(source_listings),
+                    "matching_count": matching_count,
                     "duration_ms": duration_ms,
                 }
                 logger.warning(
-                    "live_source_finished portal=%s status=%s listing_count=%s duration_ms=%s",
+                    "live_source_finished portal=%s status=%s listing_count=%s matching_count=%s duration_ms=%s",
                     source.portal.value,
                     status,
                     len(source_listings),
+                    matching_count,
                     duration_ms,
                 )
             except Exception as error:
                 unavailable_portals.append(source.portal.value)
                 http_status = getattr(getattr(error, "response", None), "status_code", None)
+                stage = getattr(error, "stage", "fetch")
                 source_diagnostics[source.portal.value] = {
                     "portal": source.portal.value,
                     "status": "unavailable",
@@ -101,8 +105,9 @@ def search_live(
                     "duration_ms": duration_ms,
                 }
                 logger.warning(
-                    "live_source_failed portal=%s error_type=%s http_status=%s duration_ms=%s",
+                    "live_source_failed portal=%s stage=%s error_type=%s http_status=%s duration_ms=%s",
                     source.portal.value,
+                    stage,
                     type(error).__name__,
                     http_status if isinstance(http_status, int) else "none",
                     duration_ms,

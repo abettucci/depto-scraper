@@ -95,7 +95,7 @@ class MonitorTests(unittest.TestCase):
 
     def test_fetches_mercado_libre_with_official_api(self):
         session = FakeSession(
-            post_payload={"access_token": "a" * 32},
+            post_payload={"access_token": "a" * 32, "refresh_token": "n" * 32, "expires_in": 10_800},
             get_payloads=[
                 {
                     "results": [
@@ -115,10 +115,11 @@ class MonitorTests(unittest.TestCase):
             ],
         )
         source = SourceURL(portal=Portal.MERCADOLIBRE, url="https://inmuebles.mercadolibre.com.ar/departamentos/alquiler/palermo")
+        credentials = MercadoLibreCredentials(client_id="123", client_secret="s" * 16, refresh_token="r" * 32)
         listings = fetch_source(
             source,
             filters=SearchFilters(locations=["Palermo"]),
-            mercado_libre_credentials=MercadoLibreCredentials(client_id="123", client_secret="s" * 16, refresh_token="r" * 32),
+            mercado_libre_credentials=credentials,
             session=session,
         )
 
@@ -127,6 +128,20 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(listings[0].covered_m2, 45)
         self.assertEqual(session.get_calls[0][1]["params"]["category"], "MLA1459")
         self.assertEqual(session.get_calls[0][1]["headers"]["Authorization"], f"Bearer {'a' * 32}")
+        self.assertTrue(credentials.token_refreshed)
+        self.assertEqual(credentials.refresh_token.get_secret_value(), "n" * 32)
+
+    def test_reuses_valid_mercado_libre_access_token(self):
+        credentials = MercadoLibreCredentials(
+            client_id="123",
+            client_secret="s" * 16,
+            refresh_token="r" * 32,
+            access_token="a" * 32,
+            access_token_expires_at=4_102_444_800,
+        )
+
+        self.assertEqual(credentials.usable_access_token(), "a" * 32)
+        self.assertFalse(credentials.token_refreshed)
 
     def test_fetches_remax_json_endpoint(self):
         session = FakeSession(

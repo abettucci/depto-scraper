@@ -115,6 +115,11 @@ jobs:
         run: |
           set -euo pipefail
           SECRET_ARN=$(terraform output -raw runtime_secret_arn)
+          PREVIOUS_SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --query SecretString --output text 2>/dev/null || printf '{}')
+          PERSISTED_MELI_REFRESH_TOKEN=$(jq -r '.meli_refresh_token // empty' <<< "$PREVIOUS_SECRET_JSON")
+          PERSISTED_MELI_ACCESS_TOKEN=$(jq -r '.meli_access_token // empty' <<< "$PREVIOUS_SECRET_JSON")
+          PERSISTED_MELI_ACCESS_TOKEN_EXPIRES_AT=$(jq -r '.meli_access_token_expires_at // empty' <<< "$PREVIOUS_SECRET_JSON")
+          MELI_RUNTIME_REFRESH_TOKEN="${PERSISTED_MELI_REFRESH_TOKEN:-$MELI_REFRESH_TOKEN}"
           SECRET_JSON=$(jq -cn \
             --arg supabase_url "$SUPABASE_URL" \
             --arg supabase_service_role_key "$SUPABASE_SERVICE_ROLE_KEY" \
@@ -124,8 +129,10 @@ jobs:
             --arg default_whatsapp_chat_id "$DEFAULT_WHATSAPP_CHAT_ID" \
             --arg meli_client_id "$MELI_CLIENT_ID" \
             --arg meli_client_secret "$MELI_CLIENT_SECRET" \
-            --arg meli_refresh_token "$MELI_REFRESH_TOKEN" \
-            '{supabase_url:$supabase_url,supabase_service_role_key:$supabase_service_role_key,preview_shared_secret:$preview_shared_secret,whatsapp_sidecar_url:$whatsapp_sidecar_url,waweb_shared_secret:$waweb_shared_secret,default_whatsapp_chat_id:$default_whatsapp_chat_id,meli_client_id:$meli_client_id,meli_client_secret:$meli_client_secret,meli_refresh_token:$meli_refresh_token}')
+            --arg meli_refresh_token "$MELI_RUNTIME_REFRESH_TOKEN" \
+            --arg meli_access_token "$PERSISTED_MELI_ACCESS_TOKEN" \
+            --argjson meli_access_token_expires_at "${PERSISTED_MELI_ACCESS_TOKEN_EXPIRES_AT:-null}" \
+            '{supabase_url:$supabase_url,supabase_service_role_key:$supabase_service_role_key,preview_shared_secret:$preview_shared_secret,whatsapp_sidecar_url:$whatsapp_sidecar_url,waweb_shared_secret:$waweb_shared_secret,default_whatsapp_chat_id:$default_whatsapp_chat_id,meli_client_id:$meli_client_id,meli_client_secret:$meli_client_secret,meli_refresh_token:$meli_refresh_token,meli_access_token:$meli_access_token,meli_access_token_expires_at:$meli_access_token_expires_at}')
           aws secretsmanager put-secret-value --secret-id "$SECRET_ARN" --secret-string "$SECRET_JSON" >/dev/null
 
       - name: Show integration values

@@ -38,7 +38,7 @@ python -m depto_monitor.run
 ## Límites deliberados
 
 - El job respeta HTTPS, allowlists por portal, límites de tamaño, timeouts y no sigue redirects.
-- Mercado Libre usa su API oficial de búsquedas inmobiliarias con OAuth refresh token. `MELI_CLIENT_ID` es el **App ID** de la aplicación; no es el access token.
+- Mercado Libre usa su API oficial de búsquedas inmobiliarias con OAuth refresh token. `MELI_CLIENT_ID` es el **App ID** de la aplicación; no es el access token. La Lambda conserva el último refresh token y access token cifrados en `depto-scraper/runtime`; el secret de GitHub es solo el valor inicial.
 - RE/MAX usa su endpoint público de listados y aplica en el monitor los filtros normalizados de localidad, precio, ambientes, metros y polígono.
 - Argenprop y Zonaprop mantienen el extractor JSON-LD público. Cada portal puede cambiar su markup o bloquear la IP de AWS; los fallos de una fuente no interrumpen las demás.
 - No descarga imágenes ni intenta eludir bloqueos, CAPTCHAs o restricciones de los sitios.
