@@ -4,6 +4,8 @@ const client = config ? supabase.createClient(config.supabaseUrl, config.supabas
 const pendingSearchKey = "depto-pending-search";
 let pendingSearch = null;
 let polygonLayer = null;
+let searchMap = null;
+let listingMarkers = null;
 const selectedLocations = [];
 
 function message(target, text) { document.getElementById(target).textContent = text; }
@@ -36,18 +38,23 @@ function renderPreview(listings) {
   });
 }
 
+function mapListingContent(listing, includeLink) { const root = document.createElement("article"); root.className = "map-listing"; const title = document.createElement("strong"); title.textContent = listing.title; root.append(title); const details = document.createElement("p"); const area = listing.covered_m2 || listing.total_m2; details.textContent = [price(listing), area ? `${area} m²` : null, listing.rooms ? `${listing.rooms} amb.` : null, listing.source, listing.address].filter(Boolean).join(" · "); root.append(details); if (includeLink) { const link = document.createElement("a"); link.href = listing.url; link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = "Ver aviso"; root.append(link); } return root; }
+function coordinatesFor(listing) { const latitude = Number(listing.latitude); const longitude = Number(listing.longitude); return Number.isFinite(latitude) && Number.isFinite(longitude) ? [latitude, longitude] : null; }
+function renderListingMarkers(listings) { if (!listingMarkers || !searchMap) return; listingMarkers.clearLayers(); const bounds = []; listings.forEach((listing) => { const coordinates = coordinatesFor(listing); if (!coordinates) return; const marker = L.circleMarker(coordinates, { radius: 8, color: "#f8fafc", weight: 2, fillColor: "#7c3aed", fillOpacity: 1, title: listing.title }); marker.bindTooltip(mapListingContent(listing, false), { direction: "top", offset: [0, -8], opacity: 1 }); marker.bindPopup(mapListingContent(listing, true), { maxWidth: 300 }); marker.addTo(listingMarkers); bounds.push(coordinates); }); document.getElementById("map-results-status").textContent = bounds.length ? `${bounds.length} aviso(s) ubicados en el mapa. Pasá el mouse por un punto para ver el detalle.` : listings.length ? "Los avisos encontrados no informan coordenadas para ubicarlos en el mapa." : ""; if (bounds.length && !polygonLayer) searchMap.fitBounds(bounds, { padding: [28, 28], maxZoom: 14 }); }
+
 function storePendingSearch(search) { pendingSearch = search; sessionStorage.setItem(pendingSearchKey, JSON.stringify(search)); }
 function restorePendingSearch() { try { pendingSearch = JSON.parse(sessionStorage.getItem(pendingSearchKey) || "null"); } catch { sessionStorage.removeItem(pendingSearchKey); pendingSearch = null; } }
 
 function initialiseMap() {
   if (!window.L) return message("preview-message", "No se pudo cargar el mapa; igual podés buscar por localidad.");
-  const map = L.map("search-map").setView([-34.6037, -58.3816], 12);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
-  map.pm.addControls({ position: "topleft", drawMarker: false, drawCircleMarker: false, drawPolyline: false, drawRectangle: false, drawText: false, drawCircle: false, drawPolygon: true, editMode: true, dragMode: false, cutPolygon: false, removalMode: true, rotateMode: false });
+  searchMap = L.map("search-map").setView([-34.6037, -58.3816], 12);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(searchMap);
+  listingMarkers = L.layerGroup().addTo(searchMap);
+  searchMap.pm.addControls({ position: "topleft", drawMarker: false, drawCircleMarker: false, drawPolyline: false, drawRectangle: false, drawText: false, drawCircle: false, drawPolygon: true, editMode: true, dragMode: false, cutPolygon: false, removalMode: true, rotateMode: false });
   const syncPolygon = () => { document.getElementById("preview-form").elements.polygonGeojson.value = polygonLayer ? JSON.stringify(polygonLayer.toGeoJSON().geometry) : ""; };
-  map.on("pm:create", (event) => { if (polygonLayer) map.removeLayer(polygonLayer); polygonLayer = event.layer; polygonLayer.on("pm:edit", syncPolygon); polygonLayer.on("pm:dragend", syncPolygon); syncPolygon(); });
-  map.on("pm:remove", (event) => { if (event.layer === polygonLayer) { polygonLayer = null; syncPolygon(); } });
-  document.getElementById("clear-polygon").onclick = () => { if (polygonLayer) map.removeLayer(polygonLayer); polygonLayer = null; syncPolygon(); };
+  searchMap.on("pm:create", (event) => { if (polygonLayer) searchMap.removeLayer(polygonLayer); polygonLayer = event.layer; polygonLayer.on("pm:edit", syncPolygon); polygonLayer.on("pm:dragend", syncPolygon); syncPolygon(); });
+  searchMap.on("pm:remove", (event) => { if (event.layer === polygonLayer) { polygonLayer = null; syncPolygon(); } });
+  document.getElementById("clear-polygon").onclick = () => { if (polygonLayer) searchMap.removeLayer(polygonLayer); polygonLayer = null; syncPolygon(); };
 }
 
 function setupPreview() {
@@ -58,11 +65,11 @@ function setupPreview() {
     let filters; try { filters = filtersFrom(form); } catch { return message("preview-message", "No se pudo leer el polígono dibujado."); }
     if (!filters.locations.length) return message("preview-message", "Agregá al menos una localidad o barrio.");
     if (filters.locations.length * portals.length > 20) return message("preview-message", "Reducí localidades o portales: el máximo es 20 combinaciones.");
-    const button = document.getElementById("preview-submit"); button.disabled = true; message("preview-message", "Buscando avisos en los portales elegidos…"); renderPreview([]);
+    const button = document.getElementById("preview-submit"); button.disabled = true; message("preview-message", "Buscando avisos en los portales elegidos…"); renderPreview([]); renderListingMarkers([]);
     try {
       const response = await fetch("/api/preview", { method: "POST", body: JSON.stringify({ portals, filters }) });
       const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error_id ? `${data.message} Código: ${data.error_id}` : data.message || "No se pudo ejecutar la búsqueda ahora.");
-      storePendingSearch({ filters, sourceUrls: data.source_urls }); renderPreview(data.listings);
+      storePendingSearch({ filters, sourceUrls: data.source_urls }); renderPreview(data.listings); renderListingMarkers(data.listings);
       const diagnostics = diagnosticsMessage(data.source_diagnostics || []);
       const diagnosticMessage = diagnostics ? ` Estado: ${diagnostics}.` : "";
       message("preview-message", data.found ? `Encontré ${data.found} avisos únicos.${diagnosticMessage}` : `No encontré avisos con esos filtros.${diagnosticMessage}`);

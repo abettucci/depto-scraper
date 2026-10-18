@@ -107,6 +107,9 @@ def search_live(
             except Exception as error:
                 http_status = getattr(getattr(error, "response", None), "status_code", None)
                 stage = getattr(error, "stage", "fetch")
+                endpoint = getattr(error, "endpoint", None)
+                parameter_names = getattr(error, "parameter_names", ())
+                response_content_type = getattr(error, "response_content_type", None)
                 source_diagnostics.append({
                     "portal": source.portal.value,
                     "status": "unavailable",
@@ -114,11 +117,14 @@ def search_live(
                     "duration_ms": duration_ms,
                 })
                 logger.warning(
-                    "live_source_failed portal=%s stage=%s error_type=%s http_status=%s duration_ms=%s",
+                    "live_source_failed portal=%s stage=%s error_type=%s http_status=%s endpoint=%s parameter_names=%s response_content_type=%s duration_ms=%s",
                     source.portal.value,
                     stage,
                     type(error).__name__,
                     http_status if isinstance(http_status, int) else "none",
+                    endpoint or "none",
+                    ",".join(parameter_names) if parameter_names else "none",
+                    response_content_type or "none",
                     duration_ms,
                 )
     filtered = [listing for listing in listings if matches_filters(listing, request.filters)]

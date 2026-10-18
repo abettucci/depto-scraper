@@ -68,10 +68,20 @@ class SourceUnavailableError(RuntimeError):
 
 
 class SourceHTTPError(RuntimeError):
-    def __init__(self, stage: str, response: requests.Response):
+    def __init__(
+        self,
+        stage: str,
+        response: requests.Response,
+        *,
+        endpoint: str | None = None,
+        parameter_names: tuple[str, ...] = (),
+    ):
         super().__init__("la fuente respondió con un error HTTP")
         self.stage = stage
         self.response = response
+        self.endpoint = endpoint
+        self.parameter_names = parameter_names
+        self.response_content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
 
 
 class _RoomixSearchParser(HTMLParser):
@@ -187,15 +197,21 @@ def _fetch_mercado_libre(
             stream=True,
         )
         access_token = _refresh_mercado_libre_tokens(token_response, credentials)
+    params = _mercado_libre_params(filters)
     response = client.get(
         MELI_SEARCH_URL,
-        params=_mercado_libre_params(filters),
+        params=params,
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=timeout_seconds,
         allow_redirects=False,
         stream=True,
     )
-    payload = _read_json_response(response, stage="mercadolibre_search")
+    payload = _read_json_response(
+        response,
+        stage="mercadolibre_search",
+        endpoint=MELI_SEARCH_URL,
+        parameter_names=tuple(sorted(params)),
+    )
     raw_results = payload.get("results")
     if not isinstance(raw_results, list):
         raise ValueError("la respuesta de Mercado Libre no tiene resultados válidos")
@@ -327,11 +343,22 @@ def _remax_params(filters: SearchFilters, page: int) -> list[tuple[str, str | in
     return params
 
 
-def _read_json_response(response: requests.Response, *, stage: str) -> dict[str, Any]:
+def _read_json_response(
+    response: requests.Response,
+    *,
+    stage: str,
+    endpoint: str | None = None,
+    parameter_names: tuple[str, ...] = (),
+) -> dict[str, Any]:
     try:
         response.raise_for_status()
     except requests.HTTPError as error:
-        raise SourceHTTPError(stage, response) from error
+        raise SourceHTTPError(
+            stage,
+            response,
+            endpoint=endpoint,
+            parameter_names=parameter_names,
+        ) from error
     content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
     if content_type not in {"application/json", "application/problem+json"}:
         raise ValueError("la fuente no devolvió JSON")

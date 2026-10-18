@@ -27,7 +27,7 @@
           </div>
           <div class="checkbox-row"><label><input name="petsAllowed" type="checkbox"> Acepta mascotas</label><label><input name="parking" type="checkbox"> Cochera</label></div>
           <div class="map-heading"><div><h3>Zona en el mapa <span>opcional</span></h3><p>Dibujá un polígono para limitar los avisos a esa área. Podés editarlo o borrarlo.</p></div><button id="clear-polygon" type="button" class="secondary">Borrar zona</button></div>
-          <div id="search-map" aria-label="Mapa para dibujar la zona de búsqueda"></div><input name="polygonGeojson" type="hidden">
+          <div id="search-map" aria-label="Mapa para dibujar la zona de búsqueda"></div><p id="map-results-status" class="field-help" aria-live="polite"></p><input name="polygonGeojson" type="hidden">
           <button id="preview-submit" type="submit">Buscar ahora</button>
         </form>
         <p id="preview-message" class="status" role="status"></p>
