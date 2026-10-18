@@ -21,7 +21,10 @@ MAX_REMAX_PAGES = 2
 MAX_REMAX_PAGE_SIZE = 50
 MELI_TOKEN_URL = "https://api.mercadolibre.com/oauth/token"
 MELI_SEARCH_URL = "https://api.mercadolibre.com/sites/MLA/search"
-MELI_REAL_ESTATE_CATEGORY = "MLA1459"
+MELI_DEPARTMENTS_CATEGORY_BY_OPERATION = {
+    "alquiler": "MLA1473",
+    "venta": "MLA1474",
+}
 REMAX_LISTINGS_URL = "https://api-ar.redremax.com/remaxweb-ar/api/listings/findAllWithEntrepreneurships"
 ROOMIX_PROPERTY_PATH = re.compile(r"^/propiedad/[a-z0-9-]+$", re.IGNORECASE)
 ROOMIX_PRICE = re.compile(r"(?P<currency>USD|U\$S|US\$|ARS|\$)\s*(?P<amount>\d[\d.,]*)", re.IGNORECASE)
@@ -232,7 +235,7 @@ def _refresh_mercado_libre_tokens(response: requests.Response, credentials: Merc
 
 def _mercado_libre_params(filters: SearchFilters) -> dict[str, str | int]:
     params: dict[str, str | int] = {
-        "category": MELI_REAL_ESTATE_CATEGORY,
+        "category": MELI_DEPARTMENTS_CATEGORY_BY_OPERATION[filters.operation],
         "limit": MAX_MELI_RESULTS,
     }
     location = filters.locations[0] if filters.locations else ""

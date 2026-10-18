@@ -152,10 +152,27 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(len(listings), 1)
         self.assertEqual(listings[0].rooms, 2)
         self.assertEqual(listings[0].covered_m2, 45)
-        self.assertEqual(session.get_calls[0][1]["params"]["category"], "MLA1459")
+        self.assertEqual(session.get_calls[0][1]["params"]["category"], "MLA1473")
         self.assertEqual(session.get_calls[0][1]["headers"]["Authorization"], f"Bearer {'a' * 32}")
         self.assertTrue(credentials.token_refreshed)
         self.assertEqual(credentials.refresh_token.get_secret_value(), "n" * 32)
+
+    def test_uses_departments_sale_category_for_mercado_libre(self):
+        session = FakeSession(
+            post_payload={"access_token": "a" * 32, "refresh_token": "n" * 32, "expires_in": 10_800},
+            get_payloads=[{"results": []}],
+        )
+        source = SourceURL(portal=Portal.MERCADOLIBRE, url="https://inmuebles.mercadolibre.com.ar/departamentos/venta/palermo")
+        credentials = MercadoLibreCredentials(client_id="123", client_secret="s" * 16, refresh_token="r" * 32)
+
+        fetch_source(
+            source,
+            filters=SearchFilters(operation="venta", locations=["Palermo"]),
+            mercado_libre_credentials=credentials,
+            session=session,
+        )
+
+        self.assertEqual(session.get_calls[0][1]["params"]["category"], "MLA1474")
 
     def test_reuses_valid_mercado_libre_access_token(self):
         credentials = MercadoLibreCredentials(
