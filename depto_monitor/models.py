@@ -15,6 +15,7 @@ class Portal(StrEnum):
     ZONAPROP = "zonaprop"
     MERCADOLIBRE = "mercadolibre"
     REMAX = "remax"
+    ROOMIX = "roomix"
 
 
 PORTAL_HOSTS: dict[Portal, tuple[str, ...]] = {
@@ -22,6 +23,7 @@ PORTAL_HOSTS: dict[Portal, tuple[str, ...]] = {
     Portal.ZONAPROP: ("zonaprop.com.ar",),
     Portal.MERCADOLIBRE: ("mercadolibre.com.ar",),
     Portal.REMAX: ("remax.com.ar", "redremax.com"),
+    Portal.ROOMIX: ("roomix.ai",),
 }
 
 

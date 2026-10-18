@@ -4,6 +4,7 @@ import json
 import math
 import re
 from html import unescape
+from html.parser import HTMLParser
 from time import time
 from typing import Any
 from urllib.parse import urljoin
@@ -11,7 +12,7 @@ from urllib.parse import urljoin
 import requests
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr
 
-from .models import Listing, Portal, SearchFilters, SourceURL, validate_portal_url
+from .models import Listing, Portal, SearchFilters, SourceURL, normalize_text, validate_portal_url
 
 REQUEST_TIMEOUT_SECONDS = 25
 MAX_RESPONSE_BYTES = 2_000_000
@@ -22,6 +23,43 @@ MELI_TOKEN_URL = "https://api.mercadolibre.com/oauth/token"
 MELI_SEARCH_URL = "https://api.mercadolibre.com/sites/MLA/search"
 MELI_REAL_ESTATE_CATEGORY = "MLA1459"
 REMAX_LISTINGS_URL = "https://api-ar.redremax.com/remaxweb-ar/api/listings/findAllWithEntrepreneurships"
+ROOMIX_PROPERTY_PATH = re.compile(r"^/propiedad/[a-z0-9-]+$", re.IGNORECASE)
+ROOMIX_PRICE = re.compile(r"(?P<currency>USD|U\$S|US\$|ARS|\$)\s*(?P<amount>\d[\d.,]*)", re.IGNORECASE)
+ROOMIX_EXPENSES = re.compile(r"\+\s*\$\s*(?P<amount>\d[\d.,]*)\s*(?:exp|expensas)", re.IGNORECASE)
+ROOMIX_ROOMS = re.compile(r"(?P<rooms>\d+)\s*amb\b|(?P<studio>monoambiente)", re.IGNORECASE)
+ROOMIX_BEDROOMS = re.compile(r"(?P<bedrooms>\d+)\s*hab\b", re.IGNORECASE)
+ROOMIX_AREA = re.compile(r"(?P<area>\d[\d.,]*)\s*m²", re.IGNORECASE)
+ZONAPROP_POSTINGS_URL = "https://www.zonaprop.com.ar/rplis-api/postings"
+ZONAPROP_CABA_LOCATION_ID = "1004884"
+ZONAPROP_CABA_LOCATIONS = frozenset(
+    {
+        "caba",
+        "capital federal",
+        "ciudad de buenos aires",
+        "almagro",
+        "balvanera",
+        "barracas",
+        "belgrano",
+        "caballito",
+        "chacarita",
+        "colegiales",
+        "coghlan",
+        "flores",
+        "floresta",
+        "la boca",
+        "monserrat",
+        "nunez",
+        "palermo",
+        "puerto madero",
+        "recoleta",
+        "retiro",
+        "san cristobal",
+        "san nicolas",
+        "villa crespo",
+        "villa devoto",
+        "villa urquiza",
+    }
+)
 JSON_LD_SCRIPT = re.compile(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', re.IGNORECASE | re.DOTALL)
 
 
@@ -34,6 +72,35 @@ class SourceHTTPError(RuntimeError):
         super().__init__("la fuente respondió con un error HTTP")
         self.stage = stage
         self.response = response
+
+
+class _RoomixSearchParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.entries: list[tuple[str, str]] = []
+        self._href: str | None = None
+        self._text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a" or self._href is not None:
+            return
+        href = dict(attrs).get("href")
+        if isinstance(href, str) and ROOMIX_PROPERTY_PATH.fullmatch(href):
+            self._href = href
+            self._text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._href is not None:
+            self._text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != "a" or self._href is None:
+            return
+        text = " ".join(part.strip() for part in self._text if part.strip())
+        if text:
+            self.entries.append((self._href, text))
+        self._href = None
+        self._text = []
 
 
 class MercadoLibreCredentials(BaseModel):
@@ -79,6 +146,12 @@ def fetch_source(
         if filters is None:
             raise SourceUnavailableError("RE/MAX requiere filtros de búsqueda")
         return _fetch_remax(source, filters, client, timeout_seconds)
+    if source.portal is Portal.ZONAPROP:
+        if filters is None:
+            raise SourceUnavailableError("Zonaprop requiere filtros de búsqueda")
+        return _fetch_zonaprop(source, filters, client, timeout_seconds)
+    if source.portal is Portal.ROOMIX:
+        return _fetch_roomix(source, client, timeout_seconds)
     return _fetch_html_json_ld(source, client, timeout_seconds)
 
 
@@ -181,6 +254,61 @@ def _fetch_remax(source: SourceURL, filters: SearchFilters, client: requests.Ses
         if not raw_listings or not isinstance(total_pages, int) or page + 1 >= total_pages:
             break
     return listings
+
+
+def _fetch_zonaprop(source: SourceURL, filters: SearchFilters, client: requests.Session, timeout_seconds: int) -> list[Listing]:
+    response = client.post(
+        ZONAPROP_POSTINGS_URL,
+        json=_zonaprop_payload(filters),
+        timeout=timeout_seconds,
+        allow_redirects=False,
+        stream=True,
+    )
+    payload = _read_json_response(response, stage="zonaprop_postings")
+    raw_listings = payload.get("listPostings")
+    if not isinstance(raw_listings, list):
+        raise ValueError("la respuesta de Zonaprop no tiene avisos válidos")
+    listings = [_parse_zonaprop_listing(item, source) for item in raw_listings]
+    return [listing for listing in listings if listing is not None]
+
+
+def _fetch_roomix(source: SourceURL, client: requests.Session, timeout_seconds: int) -> list[Listing]:
+    response = client.get(source.url, timeout=timeout_seconds, allow_redirects=False, stream=True)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as error:
+        raise SourceHTTPError("roomix_search", response) from error
+    content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+    if content_type not in {"text/html", "application/xhtml+xml"}:
+        raise ValueError("la fuente no devolvió HTML")
+    return parse_roomix_search_html(_read_limited_response(response).decode(response.encoding or "utf-8", errors="replace"), source)
+
+
+def parse_roomix_search_html(html: str, source: SourceURL) -> list[Listing]:
+    parser = _RoomixSearchParser()
+    parser.feed(html)
+    parser.close()
+    listings = [_parse_roomix_listing(path, text, source) for path, text in parser.entries]
+    return list({listing.source_key: listing for listing in listings if listing is not None}.values())
+
+
+def _zonaprop_payload(filters: SearchFilters) -> dict[str, str | int]:
+    operation = "2" if filters.operation == "alquiler" else "1"
+    payload: dict[str, str | int] = {
+        "moneda": 1 if filters.currency == "ARS" else 2,
+        "preciomin": str(filters.min_price or 0),
+        "preciomax": str(filters.max_price or 99_999_999_999),
+        "tipoDeOperacion": operation,
+        "preTipoDeOperacion": operation,
+        "superficieCubierta": 1,
+        "idunidaddemedida": 1,
+        "tipoAnunciante": "ALL",
+        "sort": "relevance",
+    }
+    location = normalize_text(filters.locations[0]) if filters.locations else ""
+    if location in ZONAPROP_CABA_LOCATIONS:
+        payload["city"] = ZONAPROP_CABA_LOCATION_ID
+    return payload
 
 
 def _remax_params(filters: SearchFilters, page: int) -> list[tuple[str, str | int]]:
@@ -298,6 +426,71 @@ def _parse_remax_listing(item: Any, source: SourceURL) -> Listing | None:
         return None
 
 
+def _parse_zonaprop_listing(item: Any, source: SourceURL) -> Listing | None:
+    if not isinstance(item, dict):
+        return None
+    title = _string(item.get("title"))
+    raw_url = _string(item.get("url"))
+    if not title or not raw_url:
+        return None
+    url = urljoin("https://www.zonaprop.com.ar/", raw_url)
+    try:
+        validate_portal_url(url, Portal.ZONAPROP)
+    except ValueError:
+        return None
+    prices = _first_zonaprop_prices(item)
+    main_features = item.get("mainFeatures") if isinstance(item.get("mainFeatures"), dict) else {}
+    location = item.get("postingLocation") if isinstance(item.get("postingLocation"), dict) else {}
+    latitude, longitude = _zonaprop_coordinates(location)
+    try:
+        return Listing(
+            source=Portal.ZONAPROP,
+            source_url=source.url,
+            url=url,
+            title=title,
+            address=_zonaprop_address(location),
+            price=prices.get("amount"),
+            currency=_zonaprop_currency(prices.get("currency")),
+            expenses=prices.get("expenses"),
+            rooms=_zonaprop_feature_value(main_features, "CFT1"),
+            bedrooms=_zonaprop_feature_value(main_features, "CFT2"),
+            covered_m2=_zonaprop_feature_value(main_features, "CFT101"),
+            total_m2=_zonaprop_feature_value(main_features, "CFT100"),
+            latitude=latitude,
+            longitude=longitude,
+        )
+    except ValueError:
+        return None
+
+
+def _parse_roomix_listing(path: str, text: str, source: SourceURL) -> Listing | None:
+    compact_text = " ".join(text.split())
+    price_match = ROOMIX_PRICE.search(compact_text)
+    if price_match is None:
+        return None
+    address = compact_text[: price_match.start()].strip(" ·|-–") or None
+    if address is None:
+        return None
+    rooms_match = ROOMIX_ROOMS.search(compact_text)
+    bedrooms_match = ROOMIX_BEDROOMS.search(compact_text)
+    area_match = ROOMIX_AREA.search(compact_text)
+    expenses_match = ROOMIX_EXPENSES.search(compact_text)
+    try:
+        return Listing(
+            source=Portal.ROOMIX,
+            source_url=source.url,
+            url=urljoin("https://roomix.ai/", path),
+            title=address,
+            address=address,
+            price=_decimal_text_or_none(price_match.group("amount")),
+            currency=_roomix_currency(price_match.group("currency")),
+            expenses=_decimal_text_or_none(expenses_match.group("amount")) if expenses_match else None,
+            rooms=1 if rooms_match and rooms_match.group("studio") else _decimal_text_or_none(rooms_match.group("rooms")) if rooms_match else None,
+            bedrooms=_decimal_text_or_none(bedrooms_match.group("bedrooms")) if bedrooms_match else None,
+            covered_m2=_decimal_text_or_none(area_match.group("area")) if area_match else None,
+        )
+    except ValueError:
+        return None
 def parse_json_ld(html: str, source: SourceURL) -> list[Listing]:
     listings: list[Listing] = []
     for raw_script in JSON_LD_SCRIPT.findall(html):
@@ -376,6 +569,73 @@ def _attributes_by_id(raw_attributes: Any) -> dict[str, Any]:
         for attribute in raw_attributes
         if isinstance(attribute, dict) and isinstance(attribute.get("id"), str)
     }
+
+
+def _first_zonaprop_prices(item: dict[str, Any]) -> dict[str, Any]:
+    operation_types = item.get("priceOperationTypes")
+    if not isinstance(operation_types, list) or not operation_types:
+        return {}
+    first_operation = operation_types[0]
+    if not isinstance(first_operation, dict):
+        return {}
+    prices = first_operation.get("prices")
+    if not isinstance(prices, list) or not prices or not isinstance(prices[0], dict):
+        return {}
+    return prices[0]
+
+
+def _zonaprop_feature_value(features: dict[str, Any], feature_id: str) -> Any:
+    feature = features.get(feature_id)
+    return feature.get("value") if isinstance(feature, dict) else None
+
+
+def _zonaprop_address(location: dict[str, Any]) -> str | None:
+    address = location.get("address")
+    nested_location = location.get("location")
+    parts = [
+        _string(address.get("name")) if isinstance(address, dict) else None,
+        _string(nested_location.get("name")) if isinstance(nested_location, dict) else None,
+        _string(nested_location.get("parent", {}).get("name")) if isinstance(nested_location, dict) and isinstance(nested_location.get("parent"), dict) else None,
+    ]
+    return ", ".join(part for part in parts if part) or None
+
+
+def _zonaprop_coordinates(location: dict[str, Any]) -> tuple[Any, Any]:
+    for key in ("geolocation", "geoLocation", "coordinates"):
+        value = location.get(key)
+        if not isinstance(value, dict):
+            continue
+        latitude = value.get("latitude") or value.get("lat")
+        longitude = value.get("longitude") or value.get("lng")
+        if latitude is not None and longitude is not None:
+            return latitude, longitude
+    return None, None
+
+
+def _zonaprop_currency(value: Any) -> str | None:
+    normalized = _string(value)
+    if normalized is None:
+        return None
+    mapping = {
+        "ars": "ARS",
+        "pesos": "ARS",
+        "$": "ARS",
+        "usd": "USD",
+        "u$s": "USD",
+        "us$": "USD",
+    }
+    return mapping.get(normalized.lower())
+
+
+def _roomix_currency(value: str) -> str:
+    return "USD" if value.upper().replace("$", "") in {"USD", "US"} else "ARS"
+
+
+def _decimal_text_or_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.replace(".", "").replace(",", ".")
+    return normalized if normalized.replace(".", "", 1).isdigit() else None
 
 
 def _attribute_value(attributes: dict[str, Any], *names: str) -> Any:

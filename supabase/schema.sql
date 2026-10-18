@@ -13,7 +13,7 @@ create table if not exists public.listing_groups (
 create table if not exists public.listing_sources (
   id uuid primary key default gen_random_uuid(), search_id uuid not null references public.saved_searches(id) on delete cascade,
   group_id uuid not null references public.listing_groups(id) on delete cascade, source_key text not null,
-  portal text not null check (portal in ('argenprop', 'zonaprop', 'mercadolibre', 'remax')), listing_url text not null,
+  portal text not null check (portal in ('argenprop', 'zonaprop', 'mercadolibre', 'remax', 'roomix')), listing_url text not null,
   active boolean not null default true, first_seen_at timestamptz not null default now(), last_seen_at timestamptz not null default now(), unique (search_id, source_key)
 );
 create table if not exists public.listing_snapshots (
@@ -29,3 +29,6 @@ create policy "users manage their searches" on public.saved_searches for all usi
 create policy "users read their groups" on public.listing_groups for select using (exists (select 1 from public.saved_searches s where s.id = search_id and s.user_id = auth.uid()));
 create policy "users read their sources" on public.listing_sources for select using (exists (select 1 from public.saved_searches s where s.id = search_id and s.user_id = auth.uid()));
 create policy "users read their snapshots" on public.listing_snapshots for select using (exists (select 1 from public.listing_sources ls join public.saved_searches s on s.id = ls.search_id where ls.id = source_id and s.user_id = auth.uid()));
+
+alter table public.listing_sources drop constraint if exists listing_sources_portal_check;
+alter table public.listing_sources add constraint listing_sources_portal_check check (portal in ('argenprop', 'zonaprop', 'mercadolibre', 'remax', 'roomix'));

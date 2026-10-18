@@ -7,7 +7,7 @@ from api.preview import preview_listings, static_asset_for
 from depto_monitor.dedupe import deduplicate
 from depto_monitor.models import Listing, Portal, SearchFilters, SourceURL
 from depto_monitor.searches import LiveSearchRequest, build_source_urls, matches_filters
-from depto_monitor.sources import MercadoLibreCredentials, fetch_source
+from depto_monitor.sources import MercadoLibreCredentials, fetch_source, parse_roomix_search_html
 from depto_monitor.whatsapp import format_summary
 from lambda_function import RuntimeSettings, handler as lambda_handler
 
@@ -78,10 +78,11 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(result["source_diagnostics"][0]["listing_count"], 1)
 
     def test_builds_sources_from_portals_and_location(self):
-        request = LiveSearchRequest.model_validate({"portals": ["argenprop", "zonaprop"], "filters": {"locations": ["CABA"]}})
+        request = LiveSearchRequest.model_validate({"portals": ["argenprop", "zonaprop", "roomix"], "filters": {"locations": ["CABA"]}})
         urls = build_source_urls(request)
         self.assertEqual(urls[0].url, "https://www.argenprop.com/departamentos/alquiler/capital-federal")
         self.assertEqual(urls[1].url, "https://www.zonaprop.com.ar/departamentos-alquiler-capital-federal.html")
+        self.assertEqual(urls[2].url, "https://roomix.ai/buscar/alquilar/departamentos/en-capital-federal")
 
     def test_applies_area_and_price_filters(self):
         filters = SearchFilters(min_price="500000", max_price="700000", min_m2="40", max_m2="50")
@@ -142,6 +143,61 @@ class MonitorTests(unittest.TestCase):
 
         self.assertEqual(credentials.usable_access_token(), "a" * 32)
         self.assertFalse(credentials.token_refreshed)
+
+    def test_fetches_zonaprop_postings_api(self):
+        session = FakeSession(
+            post_payload={
+                "listPostings": [
+                    {
+                        "title": "Departamento 2 ambientes en Palermo",
+                        "url": "/propiedades/clasificado/alclapin-departamento-palermo-123.html",
+                        "priceOperationTypes": [{"prices": [{"amount": 650000, "currency": "ARS"}]}],
+                        "mainFeatures": {
+                            "CFT1": {"value": 2},
+                            "CFT2": {"value": 1},
+                            "CFT100": {"value": 52},
+                            "CFT101": {"value": 45},
+                        },
+                        "postingLocation": {
+                            "address": {"name": "Costa Rica 5000"},
+                            "location": {"name": "Palermo", "parent": {"name": "Capital Federal"}},
+                            "geolocation": {"latitude": -34.58, "longitude": -58.43},
+                        },
+                    }
+                ]
+            }
+        )
+        source = SourceURL(portal=Portal.ZONAPROP, url="https://www.zonaprop.com.ar/departamentos-alquiler-palermo.html")
+
+        listings = fetch_source(source, filters=SearchFilters(locations=["Palermo"]), session=session)
+
+        self.assertEqual(len(listings), 1)
+        self.assertEqual(listings[0].url, "https://www.zonaprop.com.ar/propiedades/clasificado/alclapin-departamento-palermo-123.html")
+        self.assertEqual(listings[0].covered_m2, 45)
+        self.assertEqual(listings[0].rooms, 2)
+        self.assertEqual(session.post_calls[0][0], "https://www.zonaprop.com.ar/rplis-api/postings")
+        payload = session.post_calls[0][1]["json"]
+        self.assertEqual(payload["city"], "1004884")
+        self.assertEqual(payload["tipoDeOperacion"], "2")
+        self.assertNotIn("headers", session.post_calls[0][1])
+
+    def test_parses_roomix_search_cards(self):
+        source = SourceURL(portal=Portal.ROOMIX, url="https://roomix.ai/buscar/alquilar/departamentos/en-palermo")
+        html = """
+        <a href="/propiedad/departamento-palermo-123abc">
+          <span>Lavalle 3916, Palermo</span><span>$700.000 + $ 100.000 exp</span><span>2 amb 1 hab 31 m²</span>
+        </a>
+        """
+
+        listings = parse_roomix_search_html(html, source)
+
+        self.assertEqual(len(listings), 1)
+        self.assertEqual(listings[0].source, Portal.ROOMIX)
+        self.assertEqual(listings[0].address, "Lavalle 3916, Palermo")
+        self.assertEqual(listings[0].price, 700000)
+        self.assertEqual(listings[0].expenses, 100000)
+        self.assertEqual(listings[0].rooms, 2)
+        self.assertEqual(listings[0].covered_m2, 31)
 
     def test_fetches_remax_json_endpoint(self):
         session = FakeSession(

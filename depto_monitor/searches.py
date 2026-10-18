@@ -14,7 +14,7 @@ from .dedupe import choose_representative, deduplicate
 from .models import Listing, Portal, SearchFilters, SourceURL, normalize_text
 from .sources import MercadoLibreCredentials, fetch_source
 
-MAX_PORTALS = 4
+MAX_PORTALS = 5
 MAX_RESULTS = 24
 LIVE_FETCH_TIMEOUT_SECONDS = 20
 logger = logging.getLogger(__name__)
@@ -214,5 +214,8 @@ def _portal_search_url(portal: Portal, operation: str, location: str) -> str:
         return f"https://www.zonaprop.com.ar/departamentos-{operation}-{location}.html"
     if portal is Portal.MERCADOLIBRE:
         return f"https://inmuebles.mercadolibre.com.ar/departamentos/{operation}/{location}"
+    if portal is Portal.ROOMIX:
+        roomix_operation = "alquilar" if operation == "alquiler" else "comprar"
+        return f"https://roomix.ai/buscar/{roomix_operation}/departamentos/en-{location}"
     remax_operation = "rent" if operation == "alquiler" else "sale"
     return f"https://www.remax.com.ar/listings/{remax_operation}/{location}"
