@@ -61,9 +61,9 @@ class SearchFilters(BaseModel):
     min_price: Decimal | None = Field(default=None, ge=0, le=99_999_999_999)
     max_price: Decimal | None = Field(default=None, ge=0, le=99_999_999_999)
     currency: str = Field(default="ARS", pattern=r"^(ARS|USD)$")
-    min_rooms: int | None = Field(default=None, ge=1, le=20)
-    max_rooms: int | None = Field(default=None, ge=1, le=20)
-    min_m2: Decimal | None = Field(default=None, ge=1, le=10_000)
+    min_rooms: int | None = Field(default=None, ge=1, le=100)
+    max_rooms: int | None = Field(default=None, ge=1, le=100)
+    min_m2: Decimal | None = Field(default=None, gt=20, le=10_000)
     max_m2: Decimal | None = Field(default=None, ge=1, le=10_000)
     max_expenses: Decimal | None = Field(default=None, ge=0, le=99_999_999_999)
     pets_allowed: bool | None = None
