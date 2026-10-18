@@ -8,7 +8,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from depto_monitor.run import run_monitor
 from depto_monitor.searches import LiveSearchRequest, search_live
@@ -26,6 +26,11 @@ class RuntimeSettings(BaseModel):
     whatsapp_sidecar_url: str | None = Field(default=None, max_length=2048)
     waweb_shared_secret: str | None = Field(default=None, max_length=4096)
     default_whatsapp_chat_id: str | None = Field(default=None, pattern=r"^\d{8,20}$")
+
+    @field_validator("whatsapp_sidecar_url", "waweb_shared_secret", "default_whatsapp_chat_id", mode="before")
+    @classmethod
+    def blank_optional_values_are_absent(cls, value: Any) -> Any:
+        return None if isinstance(value, str) and not value.strip() else value
 
 
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
