@@ -94,6 +94,12 @@ jobs:
           terraform validate
           terraform apply -input=false -auto-approve
 
+      - name: Allow public Function URL invocation
+        run: |
+          set -euo pipefail
+          aws lambda remove-permission --function-name depto-scraper --statement-id AllowFunctionUrlInvoke 2>/dev/null || true
+          aws lambda add-permission --function-name depto-scraper --statement-id AllowFunctionUrlInvoke --action lambda:InvokeFunction --principal '*' --invoked-via-function-url >/dev/null
+
       - name: Store Lambda runtime secrets
         working-directory: infra
         env:
