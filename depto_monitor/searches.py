@@ -11,8 +11,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .dedupe import choose_representative, deduplicate
-from .models import Listing, Portal, SearchFilters, SourceURL
-from .sources import fetch_source
+from .models import Listing, Portal, SearchFilters, SourceURL, normalize_text
+from .sources import MercadoLibreCredentials, fetch_source
 
 MAX_PORTALS = 4
 MAX_RESULTS = 24
@@ -51,14 +51,24 @@ def build_source_urls(request: LiveSearchRequest) -> list[SourceURL]:
     return sources
 
 
-def search_live(request: LiveSearchRequest) -> dict[str, Any]:
+def search_live(
+    request: LiveSearchRequest,
+    *,
+    mercado_libre_credentials: MercadoLibreCredentials | None = None,
+) -> dict[str, Any]:
     sources = build_source_urls(request)
     listings: list[Listing] = []
     unavailable_portals: list[str] = []
     source_diagnostics: dict[str, dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=len(sources)) as executor:
         pending = {
-            executor.submit(fetch_source, source, timeout_seconds=LIVE_FETCH_TIMEOUT_SECONDS): (source, perf_counter())
+            executor.submit(
+                fetch_source,
+                source,
+                filters=request.filters,
+                mercado_libre_credentials=mercado_libre_credentials,
+                timeout_seconds=LIVE_FETCH_TIMEOUT_SECONDS,
+            ): (source, perf_counter())
             for source in sources
         }
         for future in as_completed(pending):
@@ -110,6 +120,8 @@ def search_live(request: LiveSearchRequest) -> dict[str, Any]:
 
 
 def matches_filters(listing: Listing, filters: SearchFilters) -> bool:
+    if filters.locations and not _matches_locations(listing, filters.locations):
+        return False
     if listing.currency is not None and listing.currency != filters.currency:
         return False
     if not _between(listing.price, filters.min_price, filters.max_price):
@@ -126,6 +138,25 @@ def matches_filters(listing: Listing, filters: SearchFilters) -> bool:
     if filters.parking is True and not any(term in (listing.title + " " + (listing.address or "")).lower() for term in ("cochera", "garage", "garaje")):
         return False
     return _inside_polygon(listing, filters.polygon_geojson)
+
+
+def _matches_locations(listing: Listing, locations: list[str]) -> bool:
+    listing_text = normalize_text(f"{listing.title} {listing.address or ''}")
+    return any(any(term in listing_text for term in _location_terms(location)) for location in locations)
+
+
+def _location_terms(location: str) -> tuple[str, ...]:
+    normalized = _normalized_location(location)
+    aliases = {
+        "caba": ("caba", "capital federal", "ciudad de buenos aires"),
+        "capital federal": ("caba", "capital federal", "ciudad de buenos aires"),
+        "ciudad de buenos aires": ("caba", "capital federal", "ciudad de buenos aires"),
+    }
+    return aliases.get(normalized, (normalized,))
+
+
+def _normalized_location(location: str) -> str:
+    return normalize_text(location)
 
 
 def _between(value: Decimal | int | None, minimum: Decimal | int | None, maximum: Decimal | int | None) -> bool:

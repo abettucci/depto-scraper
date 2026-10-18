@@ -109,6 +109,9 @@ jobs:
           WAWEB_SHARED_SECRET: ${{ secrets.WAWEB_SHARED_SECRET }}
           DEFAULT_WHATSAPP_CHAT_ID: ${{ secrets.DEFAULT_WHATSAPP_CHAT_ID }}
           SCRAPER_LAMBDA_SHARED_SECRET: ${{ secrets.SCRAPER_LAMBDA_SHARED_SECRET }}
+          MELI_CLIENT_ID: ${{ secrets.MELI_CLIENT_ID }}
+          MELI_CLIENT_SECRET: ${{ secrets.MELI_CLIENT_SECRET }}
+          MELI_REFRESH_TOKEN: ${{ secrets.MELI_REFRESH_TOKEN }}
         run: |
           set -euo pipefail
           SECRET_ARN=$(terraform output -raw runtime_secret_arn)
@@ -119,7 +122,10 @@ jobs:
             --arg whatsapp_sidecar_url "$WHATSAPP_SIDECAR_URL" \
             --arg waweb_shared_secret "$WAWEB_SHARED_SECRET" \
             --arg default_whatsapp_chat_id "$DEFAULT_WHATSAPP_CHAT_ID" \
-            '{supabase_url:$supabase_url,supabase_service_role_key:$supabase_service_role_key,preview_shared_secret:$preview_shared_secret,whatsapp_sidecar_url:$whatsapp_sidecar_url,waweb_shared_secret:$waweb_shared_secret,default_whatsapp_chat_id:$default_whatsapp_chat_id}')
+            --arg meli_client_id "$MELI_CLIENT_ID" \
+            --arg meli_client_secret "$MELI_CLIENT_SECRET" \
+            --arg meli_refresh_token "$MELI_REFRESH_TOKEN" \
+            '{supabase_url:$supabase_url,supabase_service_role_key:$supabase_service_role_key,preview_shared_secret:$preview_shared_secret,whatsapp_sidecar_url:$whatsapp_sidecar_url,waweb_shared_secret:$waweb_shared_secret,default_whatsapp_chat_id:$default_whatsapp_chat_id,meli_client_id:$meli_client_id,meli_client_secret:$meli_client_secret,meli_refresh_token:$meli_refresh_token}')
           aws secretsmanager put-secret-value --secret-id "$SECRET_ARN" --secret-string "$SECRET_JSON" >/dev/null
 
       - name: Show integration values

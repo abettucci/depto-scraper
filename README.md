@@ -18,7 +18,7 @@ El formulario construye las consultas a Argenprop, Zonaprop, Mercado Libre y RE/
 1. Creá un proyecto Supabase, ejecutá `supabase/schema.sql` en SQL Editor y habilitá Email + Google en Auth.
 2. Completá `web/config.js` con la URL y publishable key de Supabase. No publiques la service role key.
 3. Para buscar en vivo, importá el repositorio en Vercel con el directorio raíz. Vercel sirve la web y conserva `POST /api/preview` como proxy autenticado hacia Lambda.
-4. En GitHub → Settings → Secrets and variables → Actions, definí: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `WHATSAPP_SIDECAR_URL`, `WAWEB_SHARED_SECRET`, `DEFAULT_WHATSAPP_CHAT_ID` y `SCRAPER_LAMBDA_SHARED_SECRET` (una cadena aleatoria de 32+ caracteres).
+4. En GitHub → Settings → Secrets and variables → Actions, definí: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `WHATSAPP_SIDECAR_URL`, `WAWEB_SHARED_SECRET`, `DEFAULT_WHATSAPP_CHAT_ID`, `SCRAPER_LAMBDA_SHARED_SECRET` (una cadena aleatoria de 32+ caracteres), `MELI_CLIENT_ID`, `MELI_CLIENT_SECRET` y `MELI_REFRESH_TOKEN`.
 5. El workflow **Deploy Lambda scraper** empaqueta la función, crea la infraestructura con Terraform y guarda los secretos runtime en AWS Secrets Manager. Al terminar, copiá el `Lambda URL` del log a Vercel → Settings → Environment Variables como `SCRAPER_LAMBDA_URL`, y cargá el mismo `SCRAPER_LAMBDA_SHARED_SECRET` de GitHub en Vercel. Redeployá Vercel.
 6. Configurá el sidecar existente en Railway. Se usa `POST /send` con `WAWEB_SHARED_SECRET`, igual que `ticket_splitter`.
 7. Creá búsquedas en el frontend. EventBridge ejecuta el monitor cada seis horas; la primera corrida carga el baseline y las posteriores envían novedades.
@@ -38,7 +38,9 @@ python -m depto_monitor.run
 ## Límites deliberados
 
 - El job respeta HTTPS, allowlists por portal, límites de tamaño, timeouts y no sigue redirects.
-- El extractor inicial usa JSON-LD público de páginas de resultados. Cada portal puede cambiar su markup; los fallos de una fuente no interrumpen las demás.
+- Mercado Libre usa su API oficial de búsquedas inmobiliarias con OAuth refresh token. `MELI_CLIENT_ID` es el **App ID** de la aplicación; no es el access token.
+- RE/MAX usa su endpoint público de listados y aplica en el monitor los filtros normalizados de localidad, precio, ambientes, metros y polígono.
+- Argenprop y Zonaprop mantienen el extractor JSON-LD público. Cada portal puede cambiar su markup o bloquear la IP de AWS; los fallos de una fuente no interrumpen las demás.
 - No descarga imágenes ni intenta eludir bloqueos, CAPTCHAs o restricciones de los sitios.
 - La búsqueda en vivo construye internamente las fuentes HTTPS de los portales permitidos, busca en paralelo dentro de Lambda y muestra hasta 24 avisos únicos.
 - La deduplicación agrupa por dirección/título normalizado, superficie y ambientes. El criterio es deliberadamente agresivo.

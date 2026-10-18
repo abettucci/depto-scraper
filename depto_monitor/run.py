@@ -5,7 +5,7 @@ import os
 
 from dotenv import load_dotenv
 
-from .sources import fetch_source
+from .sources import MercadoLibreCredentials, fetch_source
 from .searches import matches_filters
 from .store import SupabaseStore
 from .whatsapp import send_summary
@@ -22,6 +22,7 @@ def main() -> None:
         whatsapp_sidecar_url=os.getenv("WHATSAPP_SIDECAR_URL"),
         waweb_shared_secret=os.getenv("WAWEB_SHARED_SECRET"),
         default_whatsapp_chat_id=os.getenv("DEFAULT_WHATSAPP_CHAT_ID"),
+        mercado_libre_credentials=_mercado_libre_credentials_from_environment(),
     )
 
 
@@ -32,6 +33,7 @@ def run_monitor(
     whatsapp_sidecar_url: str | None,
     waweb_shared_secret: str | None,
     default_whatsapp_chat_id: str | None,
+    mercado_libre_credentials: MercadoLibreCredentials | None = None,
 ) -> dict[str, int]:
     store = SupabaseStore(url=supabase_url, service_key=supabase_service_role_key)
     processed_searches = 0
@@ -41,7 +43,13 @@ def run_monitor(
         source_succeeded = False
         for source in search.source_urls:
             try:
-                listings.extend(fetch_source(source))
+                listings.extend(
+                    fetch_source(
+                        source,
+                        filters=search.filters,
+                        mercado_libre_credentials=mercado_libre_credentials,
+                    )
+                )
                 source_succeeded = True
             except Exception as error:
                 logger.warning("source_fetch_failed portal=%s error_type=%s", source.portal.value, type(error).__name__)
@@ -51,6 +59,17 @@ def run_monitor(
             send_summary(chat_id, search.name, changes, sidecar_url=whatsapp_sidecar_url, secret=waweb_shared_secret)
             logger.info("summary_sent search_id=%s", search.id)
     return {"searches": processed_searches}
+
+
+def _mercado_libre_credentials_from_environment() -> MercadoLibreCredentials | None:
+    values = {
+        "client_id": (os.getenv("MELI_CLIENT_ID") or "").strip(),
+        "client_secret": (os.getenv("MELI_CLIENT_SECRET") or "").strip(),
+        "refresh_token": (os.getenv("MELI_REFRESH_TOKEN") or "").strip(),
+    }
+    if not any(values.values()):
+        return None
+    return MercadoLibreCredentials(**values)
 
 
 if __name__ == "__main__":

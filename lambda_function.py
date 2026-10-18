@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from depto_monitor.run import run_monitor
 from depto_monitor.searches import LiveSearchRequest, search_live
+from depto_monitor.sources import MercadoLibreCredentials
 
 MAX_REQUEST_BYTES = 40_000
 logger = logging.getLogger(__name__)
@@ -26,11 +27,34 @@ class RuntimeSettings(BaseModel):
     whatsapp_sidecar_url: str | None = Field(default=None, max_length=2048)
     waweb_shared_secret: str | None = Field(default=None, max_length=4096)
     default_whatsapp_chat_id: str | None = Field(default=None, pattern=r"^\d{8,20}$")
+    meli_client_id: str | None = Field(default=None, min_length=1, max_length=256)
+    meli_client_secret: str | None = Field(default=None, min_length=8, max_length=4096)
+    meli_refresh_token: str | None = Field(default=None, min_length=16, max_length=4096)
 
-    @field_validator("whatsapp_sidecar_url", "waweb_shared_secret", "default_whatsapp_chat_id", mode="before")
+    @field_validator(
+        "whatsapp_sidecar_url",
+        "waweb_shared_secret",
+        "default_whatsapp_chat_id",
+        "meli_client_id",
+        "meli_client_secret",
+        "meli_refresh_token",
+        mode="before",
+    )
     @classmethod
     def blank_optional_values_are_absent(cls, value: Any) -> Any:
         return None if isinstance(value, str) and not value.strip() else value
+
+    def mercado_libre_credentials(self) -> MercadoLibreCredentials | None:
+        values = (self.meli_client_id, self.meli_client_secret, self.meli_refresh_token)
+        if all(value is None for value in values):
+            return None
+        if any(value is None for value in values):
+            raise ValueError("Las credenciales de Mercado Libre están incompletas")
+        return MercadoLibreCredentials(
+            client_id=self.meli_client_id,
+            client_secret=self.meli_client_secret,
+            refresh_token=self.meli_refresh_token,
+        )
 
 
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
@@ -50,6 +74,7 @@ def _run_scheduled_monitor() -> dict[str, Any]:
             whatsapp_sidecar_url=settings.whatsapp_sidecar_url,
             waweb_shared_secret=settings.waweb_shared_secret,
             default_whatsapp_chat_id=settings.default_whatsapp_chat_id,
+            mercado_libre_credentials=settings.mercado_libre_credentials(),
         )
         logger.warning("scheduled_monitor_finished searches=%s", result["searches"])
         return _response(200, {"message": "Monitor ejecutado."})
@@ -65,7 +90,13 @@ def _handle_preview(event: dict[str, Any]) -> dict[str, Any]:
         if not _has_valid_bearer(event.get("headers"), settings.preview_shared_secret):
             return _response(401, {"message": "No autorizado."})
         payload = _parse_body(event)
-        return _response(200, search_live(LiveSearchRequest.model_validate(payload)))
+        return _response(
+            200,
+            search_live(
+                LiveSearchRequest.model_validate(payload),
+                mercado_libre_credentials=settings.mercado_libre_credentials(),
+            ),
+        )
     except (json.JSONDecodeError, ValidationError, ValueError):
         logger.info("lambda_preview_rejected")
         return _response(400, {"message": "Revisá la localidad y los filtros de la búsqueda."})

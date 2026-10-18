@@ -1,17 +1,51 @@
 import json
 import unittest
+from decimal import Decimal
 from unittest.mock import patch
 
 from api.preview import preview_listings, static_asset_for
 from depto_monitor.dedupe import deduplicate
 from depto_monitor.models import Listing, Portal, SearchFilters, SourceURL
 from depto_monitor.searches import LiveSearchRequest, build_source_urls, matches_filters
+from depto_monitor.sources import MercadoLibreCredentials, fetch_source
 from depto_monitor.whatsapp import format_summary
 from lambda_function import RuntimeSettings, handler as lambda_handler
 
 
 def listing(source: Portal, url: str) -> Listing:
     return Listing(source=source, source_url=url, url=url, title="2 amb Palermo", address="Costa Rica 5000", price="600000", currency="ARS", rooms="2", covered_m2="45")
+
+
+class FakeResponse:
+    def __init__(self, payload: dict, status_code: int = 200):
+        self.status_code = status_code
+        self.headers = {"content-type": "application/json"}
+        self.encoding = "utf-8"
+        self._content = json.dumps(payload).encode("utf-8")
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError("request failed")
+
+    def iter_content(self, chunk_size: int):
+        del chunk_size
+        yield self._content
+
+
+class FakeSession:
+    def __init__(self, post_payload: dict | None = None, get_payloads: list[dict] | None = None):
+        self.post_payload = post_payload or {}
+        self.get_payloads = list(get_payloads or [])
+        self.post_calls: list[tuple[str, dict]] = []
+        self.get_calls: list[tuple[str, dict]] = []
+
+    def post(self, url: str, **kwargs):
+        self.post_calls.append((url, kwargs))
+        return FakeResponse(self.post_payload)
+
+    def get(self, url: str, **kwargs):
+        self.get_calls.append((url, kwargs))
+        return FakeResponse(self.get_payloads.pop(0))
 
 
 class MonitorTests(unittest.TestCase):
@@ -53,6 +87,83 @@ class MonitorTests(unittest.TestCase):
         filters = SearchFilters(min_price="500000", max_price="700000", min_m2="40", max_m2="50")
         self.assertTrue(matches_filters(listing(Portal.ZONAPROP, "https://www.zonaprop.com.ar/a"), filters))
         self.assertFalse(matches_filters(Listing(source=Portal.ZONAPROP, source_url="https://www.zonaprop.com.ar/b", url="https://www.zonaprop.com.ar/b", title="Monoambiente", price="800000", currency="ARS", covered_m2="30"), filters))
+
+    def test_applies_location_filter_to_extracted_listings(self):
+        filters = SearchFilters(locations=["Palermo"])
+        self.assertTrue(matches_filters(listing(Portal.ZONAPROP, "https://www.zonaprop.com.ar/a"), filters))
+        self.assertFalse(matches_filters(Listing(source=Portal.ZONAPROP, source_url="https://www.zonaprop.com.ar/b", url="https://www.zonaprop.com.ar/b", title="2 amb", address="Caballito", price="600000", currency="ARS"), filters))
+
+    def test_fetches_mercado_libre_with_official_api(self):
+        session = FakeSession(
+            post_payload={"access_token": "a" * 32},
+            get_payloads=[
+                {
+                    "results": [
+                        {
+                            "title": "Departamento 2 ambientes Palermo",
+                            "permalink": "https://departamento.mercadolibre.com.ar/MLA-123-test",
+                            "price": 650000,
+                            "currency_id": "ARS",
+                            "seller_address": {"address_line": "Costa Rica 5000", "neighborhood": {"name": "Palermo"}, "city": {"name": "Capital Federal"}},
+                            "attributes": [
+                                {"id": "ROOMS", "value_name": "2"},
+                                {"id": "COVERED_AREA", "value_struct": {"number": 45}},
+                            ],
+                        }
+                    ]
+                }
+            ],
+        )
+        source = SourceURL(portal=Portal.MERCADOLIBRE, url="https://inmuebles.mercadolibre.com.ar/departamentos/alquiler/palermo")
+        listings = fetch_source(
+            source,
+            filters=SearchFilters(locations=["Palermo"]),
+            mercado_libre_credentials=MercadoLibreCredentials(client_id="123", client_secret="s" * 16, refresh_token="r" * 32),
+            session=session,
+        )
+
+        self.assertEqual(len(listings), 1)
+        self.assertEqual(listings[0].rooms, 2)
+        self.assertEqual(listings[0].covered_m2, 45)
+        self.assertEqual(session.get_calls[0][1]["params"]["category"], "MLA1459")
+        self.assertEqual(session.get_calls[0][1]["headers"]["Authorization"], f"Bearer {'a' * 32}")
+
+    def test_fetches_remax_json_endpoint(self):
+        session = FakeSession(
+            get_payloads=[
+                {
+                    "data": {
+                        "data": [
+                            {
+                                "id": 42,
+                                "slug": "alquiler-departamento-palermo",
+                                "title": "Alquiler departamento Palermo",
+                                "displayAddress": "Costa Rica 5000",
+                                "geoLabel": "Palermo, Capital Federal",
+                                "location": {"coordinates": [-58.43, -34.58]},
+                                "price": 700000,
+                                "currency": {"value": "ARS"},
+                                "expensesPrice": 50000,
+                                "expensesCurrency": {"value": "ARS"},
+                                "totalRooms": 2,
+                                "bedrooms": 1,
+                                "dimensionCovered": 44,
+                                "dimensionTotalBuilt": 50,
+                            }
+                        ],
+                        "totalPages": 1,
+                    }
+                }
+            ]
+        )
+        source = SourceURL(portal=Portal.REMAX, url="https://www.remax.com.ar/listings/rent/palermo")
+        listings = fetch_source(source, filters=SearchFilters(locations=["Palermo"]), session=session)
+
+        self.assertEqual(len(listings), 1)
+        self.assertEqual(listings[0].url, "https://www.remax.com.ar/listings/alquiler-departamento-palermo")
+        self.assertEqual(listings[0].latitude, Decimal("-34.58"))
+        self.assertEqual(listings[0].longitude, Decimal("-58.43"))
+        self.assertIn(("in", "operationId:2"), session.get_calls[0][1]["params"])
 
     def test_rejects_invalid_polygon_coordinates(self):
         with self.assertRaises(ValueError):
