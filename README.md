@@ -18,6 +18,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install --requirement requirements.txt
+python -m playwright install chromium
 test -f .env || cp .env.example .env
 mkdir -p logs data
 ```
@@ -50,6 +51,8 @@ Abrí [http://127.0.0.1:8000](http://127.0.0.1:8000). La aplicación sólo escuc
 3. Escribí un nombre y presioná **Guardar y monitorear**. Los filtros y el historial quedan en `data/depto-monitor.sqlite3`.
 
 La búsqueda se ejecuta desde la misma Mac. Cada portal puede bloquear solicitudes, cambiar su página o no incluir todos los campos; el resultado muestra el estado por portal. El proyecto no intenta evadir bloqueos, CAPTCHAs ni restricciones de los sitios.
+
+Si un portal no responde en **Rápido**, elegí **Navegador local asistido** antes de buscar. Se abre un Chromium visible por 40 segundos: completá manualmente la verificación que el portal muestre y dejá la pestaña de resultados abierta. La aplicación lee solamente los avisos visibles de esas pestañas y luego cierra Chromium. El perfil local queda en `data/browser-profile` y nunca se sube a Git.
 
 ## Monitor y WhatsApp
 

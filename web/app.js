@@ -11,6 +11,7 @@ function message(id, text) { document.getElementById(id).textContent = text; }
 function value(form, name) { return form.elements[name].value.trim(); }
 function numberOrNull(form, name) { const current = value(form, name); return current ? Number(current) : null; }
 function selectedPortals(form) { return Array.from(form.querySelectorAll("input[name=portals]:checked"), (input) => input.value); }
+function executionMode(form) { return form.elements.executionMode.value; }
 function price(listing) { return listing.price ? `${listing.currency || ""} ${listing.price}`.trim() : "Precio sin informar"; }
 
 function normalizedLocation(location) { return location.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim(); }
@@ -135,9 +136,9 @@ function setupPreview() {
     let filters; try { filters = filtersFrom(form); } catch { return message("preview-message", "No se pudo leer el polígono dibujado."); }
     if (!filters.locations.length) return message("preview-message", "Agregá al menos una localidad o barrio.");
     if (filters.locations.length * portals.length > 20) return message("preview-message", "Reducí localidades o portales: el máximo es 20 combinaciones.");
-    const button = document.getElementById("preview-submit"); button.disabled = true; message("preview-message", "Buscando avisos en los portales elegidos…"); renderPreview([]); renderListingMarkers([]);
+    const mode = executionMode(form); const button = document.getElementById("preview-submit"); button.disabled = true; message("preview-message", mode === "browser" ? "Se abrirá Chromium. Completá cualquier verificación del portal: la lectura comienza en 40 segundos…" : "Buscando avisos en los portales elegidos…"); renderPreview([]); renderListingMarkers([]);
     try {
-      const response = await fetch("/api/preview", { method: "POST", body: JSON.stringify({ portals, filters }) });
+      const response = await fetch("/api/preview", { method: "POST", body: JSON.stringify({ portals, filters, execution_mode: mode }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error_id ? `${data.message} Código: ${data.error_id}` : data.message || "No se pudo ejecutar la búsqueda ahora.");
       storePendingSearch({ filters, sourceUrls: data.source_urls }); renderPreview(data.listings); renderListingMarkers(data.listings);

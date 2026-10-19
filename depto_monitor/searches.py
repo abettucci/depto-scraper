@@ -7,11 +7,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal
 import logging
 from time import perf_counter
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .dedupe import choose_representative, deduplicate
+from .browser_search import BrowserSourceResult, fetch_sources_in_browser
 from .models import Listing, Portal, SearchFilters, SourceURL, normalize_text
 from .sources import MercadoLibreCredentials, fetch_source
 
@@ -28,6 +29,7 @@ class LiveSearchRequest(BaseModel):
 
     portals: list[Portal] = Field(min_length=1, max_length=MAX_PORTALS)
     filters: SearchFilters
+    execution_mode: Literal["http", "browser"] = "http"
 
     @field_validator("portals")
     @classmethod
@@ -61,6 +63,8 @@ def search_live(
     mercado_libre_credentials: MercadoLibreCredentials | None = None,
 ) -> dict[str, Any]:
     sources = build_source_urls(request)
+    if request.execution_mode == "browser":
+        return _search_live_in_browser(sources, request.filters)
     listings: list[Listing] = []
     source_diagnostics: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=min(MAX_CONCURRENT_FETCHES, len(sources))) as executor:
@@ -136,6 +140,44 @@ def search_live(
         "source_urls": [source.model_dump(mode="json") for source in sources],
         "unavailable_portals": sorted({item["portal"] for item in source_diagnostics if item["status"] == "unavailable"}),
         "source_diagnostics": source_diagnostics,
+    }
+
+
+def _search_live_in_browser(sources: list[SourceURL], filters: SearchFilters) -> dict[str, Any]:
+    listings: list[Listing] = []
+    source_diagnostics: list[dict[str, Any]] = []
+    for result in fetch_sources_in_browser(sources):
+        source_diagnostics.append(_browser_diagnostic(result, filters))
+        listings.extend(result.listings)
+        logger.warning(
+            "browser_source_finished portal=%s status=%s listing_count=%s",
+            result.source.portal.value,
+            result.status,
+            len(result.listings),
+        )
+    filtered = [listing for listing in listings if matches_filters(listing, filters)]
+    representatives = [choose_representative(group) for group in deduplicate(filtered)]
+    return {
+        "found": len(representatives),
+        "listings": [listing.model_dump(mode="json") for listing in representatives[:MAX_RESULTS]],
+        "source_urls": [source.model_dump(mode="json") for source in sources],
+        "unavailable_portals": sorted({item["portal"] for item in source_diagnostics if item["status"] == "unavailable"}),
+        "source_diagnostics": source_diagnostics,
+    }
+
+
+def _browser_diagnostic(result: BrowserSourceResult, filters: SearchFilters) -> dict[str, Any]:
+    rejection_counts = Counter(
+        reason
+        for listing in result.listings
+        if (reason := filter_rejection_reason(listing, filters)) is not None
+    )
+    return {
+        "portal": result.source.portal.value,
+        "status": result.status,
+        "listing_count": len(result.listings),
+        "matching_count": len(result.listings) - sum(rejection_counts.values()),
+        "rejected_by": dict(sorted(rejection_counts.items())),
     }
 
 

@@ -6,3 +6,4 @@ __pycache__/
 .pytest_cache/
 .terraform/
 *.sqlite3
+data/browser-profile/

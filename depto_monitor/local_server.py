@@ -12,6 +12,7 @@ from uuid import uuid4
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from .browser_search import BrowserAutomationUnavailableError, BrowserSearchBusyError
 from .models import SavedSearch, SearchFilters, SourceURL
 from .run import _mercado_libre_credentials_from_environment
 from .searches import LiveSearchRequest, search_live
@@ -101,6 +102,10 @@ class LocalHandler(BaseHTTPRequestHandler):
                 self._send_json(201, {"id": search.id})
                 return
             self._send_json(404, {"message": "Recurso no encontrado."})
+        except BrowserSearchBusyError:
+            self._send_json(409, {"message": "Ya hay una búsqueda con navegador en curso. Cerrala o esperá a que termine."})
+        except BrowserAutomationUnavailableError:
+            self._send_json(503, {"message": "Falta instalar Chromium para el modo navegador. Ejecutá: python -m playwright install chromium"})
         except (json.JSONDecodeError, ValidationError, ValueError):
             logger.info("local_request_rejected")
             self._send_json(400, {"message": "Revisá los datos ingresados."})

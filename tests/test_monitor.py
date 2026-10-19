@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from depto_monitor.dedupe import deduplicate
+from depto_monitor.browser_search import BrowserSourceResult, parse_browser_result_page
 from depto_monitor.local_server import preview_listings, static_asset_for
 from depto_monitor.models import Listing, Portal, SavedSearch, SearchFilters, SourceURL
 from depto_monitor.searches import LiveSearchRequest, build_source_urls, filter_rejection_reason, matches_filters
@@ -78,6 +79,45 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(result["listings"][0]["title"], "2 amb Palermo")
         self.assertEqual(result["source_diagnostics"][0]["status"], "ok")
         self.assertEqual(result["source_diagnostics"][0]["listing_count"], 1)
+
+    @patch("depto_monitor.searches.fetch_sources_in_browser")
+    def test_browser_preview_uses_visible_listings(self, fetch_sources_in_browser):
+        source_url = "https://www.argenprop.com/departamentos/alquiler/palermo"
+        source = SourceURL(portal=Portal.ARGENPROP, url=source_url)
+        fetch_sources_in_browser.return_value = [
+            BrowserSourceResult(source=source, listings=[listing(Portal.ARGENPROP, source_url)], status="ok")
+        ]
+
+        result = preview_listings({"portals": ["argenprop"], "filters": {"locations": ["Palermo"]}, "execution_mode": "browser"})
+
+        self.assertEqual(result["found"], 1)
+        self.assertEqual(result["source_diagnostics"][0]["status"], "ok")
+        fetch_sources_in_browser.assert_called_once()
+
+    def test_parses_visible_property_links_without_query_parameters(self):
+        source = SourceURL(portal=Portal.ZONAPROP, url="https://www.zonaprop.com.ar/departamentos-alquiler-palermo.html")
+        listings = parse_browser_result_page(
+            "<html></html>",
+            [{"href": "https://www.zonaprop.com.ar/propiedades/departamento-palermo-123.html?tracking=secret", "text": "Departamento 2 amb Palermo $ 700.000 45 m²"}],
+            source,
+        )
+
+        self.assertEqual(len(listings), 1)
+        self.assertEqual(listings[0].url, "https://www.zonaprop.com.ar/propiedades/departamento-palermo-123.html")
+        self.assertEqual(listings[0].price, 700000)
+        self.assertEqual(listings[0].covered_m2, 45)
+
+    def test_parses_argenprop_visible_property_links(self):
+        source = SourceURL(portal=Portal.ARGENPROP, url="https://www.argenprop.com/departamentos/alquiler/palermo")
+        listings = parse_browser_result_page(
+            "<html></html>",
+            [{"href": "https://www.argenprop.com/departamento-en-alquiler-en-palermo-2-ambientes--20694516", "text": "Costa Rica 3900, Palermo $ 800.000 45 m² cubie. 2 ambientes"}],
+            source,
+        )
+
+        self.assertEqual(len(listings), 1)
+        self.assertEqual(listings[0].price, 800000)
+        self.assertEqual(listings[0].rooms, 2)
 
     def test_builds_sources_from_portals_and_location(self):
         request = LiveSearchRequest.model_validate({"portals": ["argenprop", "zonaprop", "roomix"], "filters": {"locations": ["CABA"]}})
