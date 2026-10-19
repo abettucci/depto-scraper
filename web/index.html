@@ -8,7 +8,7 @@
   </head>
   <body>
     <main>
-      <header><p class="eyebrow">Alquileres en Argentina</p><h1>Deptos monitor</h1><p>Buscá en los portales desde un solo lugar, guardá filtros y recibí novedades cada seis horas.</p></header>
+      <header><p class="eyebrow">Alquileres en Argentina</p><h1>Deptos monitor</h1><p>Buscá y guardá filtros en esta computadora. El monitor local te avisa por WhatsApp cada seis horas.</p></header>
       <section id="preview">
         <div class="section-heading"><div><h2>Buscar departamentos</h2><p>Elegí dónde buscar y aplicá los mismos filtros que usarías en cada portal.</p></div></div>
         <form id="preview-form">
@@ -33,13 +33,12 @@
         <p id="preview-message" class="status" role="status"></p>
         <div id="preview-results" class="preview-results" aria-live="polite"></div>
       </section>
-      <section id="auth"><h2>Ingresar</h2><p class="muted">Iniciá sesión para guardar esta búsqueda, consultar el historial y activar WhatsApp.</p><div class="auth-fields"><input id="email" type="email" autocomplete="email" placeholder="email"><input id="password" type="password" autocomplete="current-password" placeholder="contraseña (mínimo 6 caracteres)"></div><div class="button-row"><button id="email-login" type="button">Entrar</button><button id="email-signup" type="button">Crear cuenta</button><button id="google-login" type="button">Continuar con Google</button></div><p id="auth-message" class="status" role="status"></p></section>
-      <section id="app" hidden>
-        <div class="toolbar"><div><h2>Guardar esta búsqueda</h2><p class="muted">Los portales y filtros provienen de la última búsqueda que ejecutaste.</p></div><button id="sign-out" type="button" class="secondary">Salir</button></div>
+      <section id="app">
+        <div class="toolbar"><div><h2>Guardar esta búsqueda</h2><p class="muted">Los portales y filtros provienen de la última búsqueda que ejecutaste y se guardan en esta computadora.</p></div></div>
         <form id="save-form" class="save-form"><label>Nombre<input name="name" required maxlength="80" placeholder="2 amb. Palermo"></label><label>WhatsApp (números)<input name="chatId" pattern="[0-9]{8,20}" inputmode="numeric" placeholder="54911..."></label><button>Guardar y monitorear</button><p id="form-message" class="status" role="status"></p></form>
         <section><h2>Historial</h2><div id="searches"></div></section>
       </section>
     </main>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.19.0/dist/leaflet-geoman.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="config.js"></script><script src="app.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.19.0/dist/leaflet-geoman.min.js"></script><script src="app.js"></script>
   </body>
 </html>

@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from .sources import MercadoLibreCredentials, fetch_source
 from .searches import matches_filters
-from .store import SupabaseStore
+from .store import SQLiteStore
 from .whatsapp import send_summary
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -17,8 +17,7 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     load_dotenv()
     run_monitor(
-        supabase_url=os.getenv("SUPABASE_URL"),
-        supabase_service_role_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
+        database_path=os.getenv("DEPTOS_DATABASE_PATH"),
         whatsapp_sidecar_url=os.getenv("WHATSAPP_SIDECAR_URL"),
         waweb_shared_secret=os.getenv("WAWEB_SHARED_SECRET"),
         default_whatsapp_chat_id=os.getenv("DEFAULT_WHATSAPP_CHAT_ID"),
@@ -28,14 +27,13 @@ def main() -> None:
 
 def run_monitor(
     *,
-    supabase_url: str | None,
-    supabase_service_role_key: str | None,
+    database_path: str | None,
     whatsapp_sidecar_url: str | None,
     waweb_shared_secret: str | None,
     default_whatsapp_chat_id: str | None,
     mercado_libre_credentials: MercadoLibreCredentials | None = None,
 ) -> dict[str, int]:
-    store = SupabaseStore(url=supabase_url, service_key=supabase_service_role_key)
+    store = SQLiteStore(database_path)
     processed_searches = 0
     for search in store.list_searches():
         processed_searches += 1

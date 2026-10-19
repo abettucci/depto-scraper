@@ -1,50 +1,92 @@
-# Deptos monitor
+# Deptos monitor (local)
 
-Monitor personal de alquileres argentinos: guardá búsquedas, recopilá avisos de Argenprop, Zonaprop, Mercado Libre y RE/MAX cada seis horas, deduplicá la misma propiedad entre portales y recibí un resumen por WhatsApp.
+Monitor personal de alquileres en Argentina. Ejecuta las consultas desde tu Mac, permite probar búsquedas en el navegador, guarda filtros e historial en SQLite y puede enviar novedades por tu sidecar de WhatsApp Web.
 
-## Arquitectura
+No usa Supabase, Vercel, Cloudflare, AWS, GitHub Actions ni una base de datos remota. Es una instalación local de un único usuario.
 
-- `web/`: frontend estático para Cloudflare Pages o Vercel, con Supabase Auth (Google y email/contraseña).
-- `api/preview.py`: función de Vercel que sirve el frontend y deriva la búsqueda en vivo a Lambda cuando está configurada.
-- `lambda_function.py` + `infra/`: Lambda Python, EventBridge cada seis horas, CloudWatch Logs, Secrets Manager y Terraform.
-- `supabase/schema.sql`: búsquedas, avisos agrupados, fuentes y snapshots históricos con RLS.
-- `depto_monitor/`: job Python que procesa búsquedas, valida destinos, extrae JSON-LD público, conserva historial y llama al sidecar de WhatsApp Web.
-- `.github/workflows/deploy-lambda.yml`: empaquetado, Terraform y deploy de la Lambda.
+## Requisitos
 
-El formulario construye las consultas a Argenprop, Zonaprop, Mercado Libre y RE/MAX desde localidad, operación, presupuesto, ambientes, metros, expensas, mascotas, cochera y un polígono dibujado en el mapa. No hace falta conocer las URLs de los portales. Los filtros y fuentes generadas quedan persistidos para la corrida programada.
+- Python 3.12 o superior.
+- Acceso a Internet para consultar los portales y cargar el mapa.
+- Opcional: el sidecar de WhatsApp Web que ya usás.
 
-## Configuración inicial
-
-1. Creá un proyecto Supabase, ejecutá `supabase/schema.sql` en SQL Editor y habilitá Email + Google en Auth.
-2. Completá `web/config.js` con la URL y publishable key de Supabase. No publiques la service role key.
-3. Para buscar en vivo, importá el repositorio en Vercel con el directorio raíz. Vercel sirve la web y conserva `POST /api/preview` como proxy autenticado hacia Lambda.
-4. En GitHub → Settings → Secrets and variables → Actions, definí: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `WHATSAPP_SIDECAR_URL`, `WAWEB_SHARED_SECRET`, `DEFAULT_WHATSAPP_CHAT_ID`, `SCRAPER_LAMBDA_SHARED_SECRET` (una cadena aleatoria de 32+ caracteres), `MELI_CLIENT_ID`, `MELI_CLIENT_SECRET` y `MELI_REFRESH_TOKEN`.
-5. El workflow **Deploy Lambda scraper** empaqueta la función, crea la infraestructura con Terraform y guarda los secretos runtime en AWS Secrets Manager. Al terminar, copiá el `Lambda URL` del log a Vercel → Settings → Environment Variables como `SCRAPER_LAMBDA_URL`, y cargá el mismo `SCRAPER_LAMBDA_SHARED_SECRET` de GitHub en Vercel. Redeployá Vercel.
-6. Configurá el sidecar existente en Railway. Se usa `POST /send` con `WAWEB_SHARED_SECRET`, igual que `ticket_splitter`.
-7. Creá búsquedas en el frontend. EventBridge ejecuta el monitor cada seis horas; la primera corrida carga el baseline y las posteriores envían novedades.
+## Instalación
 
 ```bash
+cd /Users/abettucci/depto-scraper
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install --requirement requirements.txt
-python -m unittest discover -s tests
+test -f .env || cp .env.example .env
+mkdir -p logs data
+```
+
+Editá `.env` solamente si querés cambiar la ruta de la base, habilitar WhatsApp o usar la API oficial de Mercado Libre:
+
+```dotenv
+DEPTOS_DATABASE_PATH=data/depto-monitor.sqlite3
+WHATSAPP_SIDECAR_URL=https://tu-sidecar.up.railway.app
+WAWEB_SHARED_SECRET=tu-secreto-local
+DEFAULT_WHATSAPP_CHAT_ID=54911XXXXXXXX
+```
+
+No publiques `.env` ni la base SQLite. Ambos ya están ignorados por Git.
+
+## Usar la aplicación
+
+Iniciá el servidor local:
+
+```bash
+cd /Users/abettucci/depto-scraper
+source .venv/bin/activate
+python -m depto_monitor.local_server
+```
+
+Abrí [http://127.0.0.1:8000](http://127.0.0.1:8000). La aplicación sólo escucha en tu computadora, sin login ni cuenta externa.
+
+1. Elegí portales, localidades, precio, ambientes, metros y otros filtros.
+2. Presioná **Buscar ahora** para ver los avisos y sus puntos en el mapa cuando el portal publica coordenadas.
+3. Escribí un nombre y presioná **Guardar y monitorear**. Los filtros y el historial quedan en `data/depto-monitor.sqlite3`.
+
+La búsqueda se ejecuta desde la misma Mac. Cada portal puede bloquear solicitudes, cambiar su página o no incluir todos los campos; el resultado muestra el estado por portal. El proyecto no intenta evadir bloqueos, CAPTCHAs ni restricciones de los sitios.
+
+## Monitor y WhatsApp
+
+Corré una vez el monitor manualmente para cargar el baseline:
+
+```bash
+cd /Users/abettucci/depto-scraper
+source .venv/bin/activate
 python -m depto_monitor.run
 ```
 
-## Logs y diagnóstico
+La primera corrida registra los avisos existentes sin notificar. Las siguientes registran avisos nuevos, cambios de precio y reapariciones. Si configuraste el sidecar y un número de chat, envían el resumen por WhatsApp.
 
-- Para una búsqueda en vivo: Vercel → proyecto → **Logs** → filtro `/api/preview` muestra el proxy y la respuesta de Lambda.
-- Para el scraper: AWS → CloudWatch → Log groups → `/aws/lambda/depto-scraper`. Cada portal escribe su estado, cantidad, duración y código HTTP sin registrar filtros, URLs ni secretos.
-- La Function URL no tiene CORS: el navegador nunca la llama directamente. Vercel la invoca con el secreto compartido por `Authorization`.
+Para ejecutarlo cada seis horas en macOS, abrí `crontab -e` y agregá:
 
-## Límites deliberados
+```cron
+17 */6 * * * cd /Users/abettucci/depto-scraper && /Users/abettucci/depto-scraper/.venv/bin/python -m depto_monitor.run >> /Users/abettucci/depto-scraper/logs/monitor.log 2>&1
+```
 
-- El job respeta HTTPS, allowlists por portal, límites de tamaño, timeouts y no sigue redirects.
-- Mercado Libre usa su API oficial de búsquedas inmobiliarias con OAuth refresh token. `MELI_CLIENT_ID` es el **App ID** de la aplicación; no es el access token. La Lambda conserva el último refresh token y access token cifrados en `depto-scraper/runtime`; el secret de GitHub es solo el valor inicial.
-- RE/MAX usa su endpoint público de listados y aplica en el monitor los filtros normalizados de localidad, precio, ambientes, metros y polígono.
-- Argenprop y Zonaprop mantienen el extractor JSON-LD público. Cada portal puede cambiar su markup o bloquear la IP de AWS; los fallos de una fuente no interrumpen las demás.
-- No descarga imágenes ni intenta eludir bloqueos, CAPTCHAs o restricciones de los sitios.
-- La búsqueda en vivo construye internamente las fuentes HTTPS de los portales permitidos, busca en paralelo dentro de Lambda y muestra hasta 24 avisos únicos.
-- La deduplicación agrupa por dirección/título normalizado, superficie y ambientes. El criterio es deliberadamente agresivo.
+Verificá el resultado con:
 
-## Scraper anterior
+```bash
+tail -f /Users/abettucci/depto-scraper/logs/monitor.log
+```
 
-El prototipo anterior para Recoleta y zona norte sigue en `miranda_scraper/`.
+Para detenerlo, eliminá esa línea de `crontab -e`.
+
+## Datos y backup
+
+- Búsquedas, avisos agrupados y snapshots: `data/depto-monitor.sqlite3`.
+- Copia de seguridad manual: `cp data/depto-monitor.sqlite3 data/depto-monitor.backup.sqlite3`.
+- Para empezar de cero, detené el servidor y borrá ese archivo.
+
+## Tests
+
+```bash
+cd /Users/abettucci/depto-scraper
+source .venv/bin/activate
+python -m unittest discover -s tests
+```

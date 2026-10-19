@@ -1,15 +1,17 @@
 import json
 import unittest
 from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from api.preview import preview_listings, static_asset_for
 from depto_monitor.dedupe import deduplicate
-from depto_monitor.models import Listing, Portal, SearchFilters, SourceURL
+from depto_monitor.local_server import preview_listings, static_asset_for
+from depto_monitor.models import Listing, Portal, SavedSearch, SearchFilters, SourceURL
 from depto_monitor.searches import LiveSearchRequest, build_source_urls, filter_rejection_reason, matches_filters
 from depto_monitor.sources import MercadoLibreCredentials, fetch_source, parse_roomix_search_html
+from depto_monitor.store import SQLiteStore
 from depto_monitor.whatsapp import format_summary
-from lambda_function import RuntimeSettings, handler as lambda_handler
 
 
 def listing(source: Portal, url: str) -> Listing:
@@ -283,47 +285,30 @@ class MonitorTests(unittest.TestCase):
             SearchFilters(polygon_geojson={"type": "Polygon", "coordinates": [[[200, 0], [0, 0], [0, 1], [200, 0]]]})
 
     def test_serves_only_allowlisted_static_assets(self):
-        asset = static_asset_for("/?source=vercel")
+        asset = static_asset_for("/?source=local")
         self.assertIsNotNone(asset)
         self.assertEqual(asset[0].name, "index.html")
         self.assertIsNone(static_asset_for("/../../.env"))
 
-    def test_runtime_settings_accept_empty_optional_whatsapp_values(self):
-        settings = RuntimeSettings(
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="x" * 20,
-            preview_shared_secret="s" * 32,
-            whatsapp_sidecar_url="",
-            waweb_shared_secret="   ",
-            default_whatsapp_chat_id="",
-        )
+    def test_persists_local_searches_and_history_in_sqlite(self):
+        with TemporaryDirectory() as temporary_directory:
+            store = SQLiteStore(Path(temporary_directory) / "monitor.sqlite3")
+            source_url = "https://www.zonaprop.com.ar/departamentos-alquiler-palermo.html"
+            search = SavedSearch(
+                id="local-search",
+                user_id="local",
+                name="Palermo 2 amb.",
+                filters=SearchFilters(locations=["Palermo"]),
+                source_urls=[SourceURL(portal=Portal.ZONAPROP, url=source_url)],
+            )
 
-        self.assertIsNone(settings.whatsapp_sidecar_url)
-        self.assertIsNone(settings.waweb_shared_secret)
-        self.assertIsNone(settings.default_whatsapp_chat_id)
+            store.save_search(search)
+            self.assertEqual(store.list_search_summaries()[0]["listing_count"], 0)
+            self.assertEqual(store.record_run(store.list_searches()[0], [listing(Portal.ZONAPROP, source_url)], True), {})
 
-    @patch("lambda_function.search_live")
-    @patch("lambda_function.load_runtime_settings")
-    def test_lambda_preview_requires_secret_and_returns_results(self, load_runtime_settings, search_live):
-        load_runtime_settings.return_value = RuntimeSettings(
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="x" * 20,
-            preview_shared_secret="s" * 32,
-        )
-        search_live.return_value = {"found": 0, "listings": []}
-        event = {
-            "requestContext": {"http": {"method": "POST"}},
-            "headers": {"authorization": f"Bearer {'s' * 32}"},
-            "body": '{"portals":["zonaprop"],"filters":{"locations":["Palermo"]}}',
-            "isBase64Encoded": False,
-        }
-
-        response = lambda_handler(event, None)
-
-        self.assertEqual(response["statusCode"], 200)
-        self.assertEqual(json.loads(response["body"])["found"], 0)
-        event["headers"] = {}
-        self.assertEqual(lambda_handler(event, None)["statusCode"], 401)
+            summary = store.list_search_summaries()[0]
+            self.assertEqual(summary["listing_count"], 1)
+            self.assertEqual(summary["listings"][0]["title"], "2 amb Palermo")
 
 
 if __name__ == "__main__":
