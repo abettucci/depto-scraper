@@ -54,6 +54,8 @@ La búsqueda se ejecuta desde la misma Mac. Cada portal puede bloquear solicitud
 
 Si un portal no responde en **Rápido**, elegí **Navegador local asistido** antes de buscar. Se abre un Chromium visible por 40 segundos: completá manualmente la verificación que el portal muestre y dejá la pestaña de resultados abierta. La aplicación lee solamente los avisos visibles de esas pestañas y luego cierra Chromium. El perfil local queda en `data/browser-profile` y nunca se sube a Git.
 
+Los filtros de precio, superficie, ambientes, dormitorios, baños, mascotas y cochera se aplican a los datos normalizados. Las comodidades se aplican cuando el portal las informa en la tarjeta del aviso; si no las publica, ese aviso se descarta para evitar mostrar falsos positivos.
+
 ## Monitor y WhatsApp
 
 Corré una vez el monitor manualmente para cargar el baseline:

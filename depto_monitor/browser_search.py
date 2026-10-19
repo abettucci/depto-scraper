@@ -23,6 +23,7 @@ PROFILE_DIRECTORY = Path(__file__).resolve().parent.parent / "data" / "browser-p
 _PRICE = re.compile(r"(?P<currency>USD|U\$S|US\$|ARS|\$)\s*(?P<amount>\d(?:[\d.,]*\d)?)", re.IGNORECASE)
 _ROOMS = re.compile(r"(?P<rooms>\d+)\s*amb(?:ientes?)?\b|(?P<studio>monoambiente)", re.IGNORECASE)
 _BEDROOMS = re.compile(r"(?P<bedrooms>\d+)\s*(?:dorm|hab)\b", re.IGNORECASE)
+_BATHROOMS = re.compile(r"(?P<bathrooms>\d+)\s*baños?\b", re.IGNORECASE)
 _AREAS = re.compile(r"(?P<area>\d[\d.,]*)\s*m(?:²|2)\b", re.IGNORECASE)
 
 
@@ -170,6 +171,7 @@ def _listing_from_anchor(anchor: BrowserAnchor, source: SourceURL) -> Listing | 
     title = title[:500].strip() or f"Aviso en {source.portal.value}"
     rooms_match = _ROOMS.search(text)
     bedrooms_match = _BEDROOMS.search(text)
+    bathrooms_match = _BATHROOMS.search(text)
     area_match = _AREAS.search(text)
     try:
         return Listing(
@@ -182,7 +184,9 @@ def _listing_from_anchor(anchor: BrowserAnchor, source: SourceURL) -> Listing | 
             currency=_currency_or_none(price_match.group("currency")) if price_match else None,
             rooms=1 if rooms_match and rooms_match.group("studio") else rooms_match.group("rooms") if rooms_match else None,
             bedrooms=bedrooms_match.group("bedrooms") if bedrooms_match else None,
+            bathrooms=bathrooms_match.group("bathrooms") if bathrooms_match else None,
             covered_m2=_number_or_none(area_match.group("area")) if area_match else None,
+            details=text,
         )
     except ValueError:
         return None

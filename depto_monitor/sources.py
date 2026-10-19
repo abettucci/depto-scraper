@@ -422,11 +422,13 @@ def _parse_mercado_libre_listing(item: Any, source: SourceURL) -> Listing | None
             expenses=_attribute_value(attributes, "MAINTENANCE_FEE", "EXPENSES", "EXPENSAS"),
             rooms=_attribute_value(attributes, "ROOMS", "TOTAL_ROOMS", "AMBIENTES"),
             bedrooms=_attribute_value(attributes, "BEDROOMS", "DORMITORY", "DORMITORIOS"),
+            bathrooms=_attribute_value(attributes, "FULL_BATHROOMS", "BATHROOMS", "BANOS"),
             covered_m2=_attribute_value(attributes, "COVERED_AREA", "COVERED_M2", "SUPERFICIE_CUBIERTA"),
             total_m2=_attribute_value(attributes, "TOTAL_AREA", "TOTAL_M2", "SUPERFICIE_TOTAL"),
             latitude=latitude,
             longitude=longitude,
             image_url=_https_url_or_none(item.get("thumbnail")),
+            details=_string(item.get("description")),
         )
     except ValueError:
         return None
@@ -463,11 +465,13 @@ def _parse_remax_listing(item: Any, source: SourceURL) -> Listing | None:
             expenses=item.get("expensesPrice") if _currency(expenses_currency.get("value") if isinstance(expenses_currency, dict) else None) == "ARS" else None,
             rooms=item.get("totalRooms"),
             bedrooms=item.get("bedrooms"),
+            bathrooms=item.get("bathrooms"),
             covered_m2=item.get("dimensionCovered"),
             total_m2=item.get("dimensionTotalBuilt"),
             latitude=latitude,
             longitude=longitude,
             image_url=None,
+            details=_string(item.get("description")),
         )
     except ValueError:
         return None
@@ -501,10 +505,12 @@ def _parse_zonaprop_listing(item: Any, source: SourceURL) -> Listing | None:
             expenses=prices.get("expenses"),
             rooms=_zonaprop_feature_value(main_features, "CFT1"),
             bedrooms=_zonaprop_feature_value(main_features, "CFT2"),
+            bathrooms=_zonaprop_feature_value(main_features, "CFT3"),
             covered_m2=_zonaprop_feature_value(main_features, "CFT101"),
             total_m2=_zonaprop_feature_value(main_features, "CFT100"),
             latitude=latitude,
             longitude=longitude,
+            details=_string(item.get("description")),
         )
     except ValueError:
         return None
@@ -535,6 +541,7 @@ def _parse_roomix_listing(path: str, text: str, source: SourceURL) -> Listing | 
             rooms=1 if rooms_match and rooms_match.group("studio") else _decimal_text_or_none(rooms_match.group("rooms")) if rooms_match else None,
             bedrooms=_decimal_text_or_none(bedrooms_match.group("bedrooms")) if bedrooms_match else None,
             covered_m2=_decimal_text_or_none(area_match.group("area")) if area_match else None,
+            details=compact_text,
         )
     except ValueError:
         return None
@@ -599,10 +606,12 @@ def _parse_item(item: Any, source: SourceURL) -> Listing | None:
             currency=_currency(offer.get("priceCurrency")),
             rooms=_value_or_none(item.get("numberOfRooms")),
             bedrooms=_value_or_none(item.get("numberOfBedrooms")),
+            bathrooms=_value_or_none(item.get("numberOfBathroomsTotal")),
             covered_m2=_value_or_none(item.get("floorSize", {}).get("value") if isinstance(item.get("floorSize"), dict) else None),
             latitude=_value_or_none(geo.get("latitude")),
             longitude=_value_or_none(geo.get("longitude")),
             image_url=_https_url_or_none(image),
+            details=_string(item.get("description")),
         )
     except ValueError:
         return None

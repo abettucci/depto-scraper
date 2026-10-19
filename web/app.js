@@ -6,6 +6,8 @@ let pendingSearch = null;
 let searchMap = null;
 let polygonLayer = null;
 let listingMarkers = null;
+const selectedAmenities = new Set();
+const rangeSelections = { rooms: { min: null, max: null }, bedrooms: { min: null, max: null }, bathrooms: { min: null, max: null } };
 
 function message(id, text) { document.getElementById(id).textContent = text; }
 function value(form, name) { return form.elements[name].value.trim(); }
@@ -51,11 +53,46 @@ function setupLocations() {
 function filtersFrom(form) {
   const polygon = value(form, "polygonGeojson");
   return {
-    operation: value(form, "operation"), locations: [...selectedLocations], min_price: numberOrNull(form, "minPrice"), max_price: numberOrNull(form, "maxPrice"), currency: value(form, "currency"),
+    operation: value(form, "operation"), locations: [...selectedLocations], min_price: numberOrNull(form, "minPrice"), max_price: numberOrNull(form, "maxPrice"), currency: value(form, "currency"), area_mode: value(form, "areaMode"),
     min_rooms: numberOrNull(form, "minRooms"), max_rooms: numberOrNull(form, "maxRooms"), min_m2: numberOrNull(form, "minM2"), max_m2: numberOrNull(form, "maxM2"),
-    max_expenses: numberOrNull(form, "maxExpenses"), pets_allowed: form.elements.petsAllowed.checked || null, parking: form.elements.parking.checked || null,
+    min_bedrooms: numberOrNull(form, "minBedrooms"), max_bedrooms: numberOrNull(form, "maxBedrooms"), min_bathrooms: numberOrNull(form, "minBathrooms"), max_bathrooms: numberOrNull(form, "maxBathrooms"),
+    max_expenses: numberOrNull(form, "maxExpenses"), pets_allowed: form.elements.petsAllowed.checked || null, parking: form.elements.parking.checked || null, amenities: [...selectedAmenities],
     polygon_geojson: polygon ? JSON.parse(polygon) : null,
   };
+}
+
+function setupVisualFilters() {
+  const form = document.getElementById("preview-form");
+  form.querySelectorAll("button[data-choice]").forEach((button) => {
+    button.onclick = () => {
+      const group = button.dataset.choice; const hidden = form.elements[group];
+      hidden.value = button.dataset.value;
+      form.querySelectorAll(`button[data-choice="${group}"]`).forEach((current) => current.classList.toggle("is-selected", current === button));
+    };
+  });
+  form.querySelectorAll("[data-range]").forEach((root) => {
+    root.onclick = (event) => {
+      const button = event.target.closest("button[data-value]"); if (!button) return;
+      const key = root.dataset.range; const value = Number(button.dataset.value); const selection = rangeSelections[key];
+      if (selection.min === value && selection.max === null) { selection.min = null; }
+      else if (selection.min === null || selection.max !== null) { selection.min = value; selection.max = null; }
+      else if (value < selection.min) { selection.min = value; }
+      else if (value === selection.min) { selection.min = null; }
+      else { selection.max = value; }
+      form.elements[`min${key[0].toUpperCase()}${key.slice(1)}`].value = selection.min ?? "";
+      form.elements[`max${key[0].toUpperCase()}${key.slice(1)}`].value = selection.max ?? "";
+      root.querySelectorAll("button[data-value]").forEach((current) => {
+        const currentValue = Number(current.dataset.value); current.classList.toggle("is-selected", selection.min !== null && currentValue >= selection.min && (selection.max === null || currentValue <= selection.max));
+      });
+    };
+  });
+  form.querySelectorAll("button[data-amenity]").forEach((button) => {
+    button.onclick = () => {
+      const amenity = button.dataset.amenity;
+      if (selectedAmenities.has(amenity)) selectedAmenities.delete(amenity); else selectedAmenities.add(amenity);
+      button.classList.toggle("is-selected", selectedAmenities.has(amenity));
+    };
+  });
 }
 
 function renderPreview(listings) {
@@ -112,7 +149,7 @@ function initialiseMap() {
 }
 
 function diagnosticsMessage(diagnostics) {
-  const labels = { location: "ubicación", currency: "moneda", price_min: "precio mín.", price_max: "precio máx.", rooms_min: "ambientes mín.", rooms_max: "ambientes máx.", area_min: "m² mín.", area_max: "m² máx.", expenses: "expensas", pets: "mascotas", parking: "cochera", polygon: "polígono" };
+  const labels = { location: "ubicación", currency: "moneda", price_min: "precio mín.", price_max: "precio máx.", rooms_min: "ambientes mín.", rooms_max: "ambientes máx.", bedrooms_min: "dormitorios mín.", bedrooms_max: "dormitorios máx.", bathrooms_min: "baños mín.", bathrooms_max: "baños máx.", area_min: "m² mín.", area_max: "m² máx.", expenses: "expensas", pets: "mascotas", parking: "cochera", amenities: "comodidades", polygon: "polígono" };
   const groups = new Map();
   diagnostics.forEach((diagnostic) => {
     const group = groups.get(diagnostic.portal) || { total: 0, matching: 0, unavailable: 0, rejected: {} };
@@ -178,5 +215,5 @@ function setupSavedSearches() {
     } catch (error) { message("form-message", error.message || "No se pudo guardar la búsqueda."); }
   };
 }
-function setup() { restorePendingSearch(); initialiseMap(); setupLocations(); setupPreview(); setupSavedSearches(); loadSearches(); }
+function setup() { restorePendingSearch(); initialiseMap(); setupLocations(); setupVisualFilters(); setupPreview(); setupSavedSearches(); loadSearches(); }
 setup();

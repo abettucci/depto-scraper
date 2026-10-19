@@ -142,6 +142,24 @@ class MonitorTests(unittest.TestCase):
         self.assertTrue(matches_filters(listing(Portal.ZONAPROP, "https://www.zonaprop.com.ar/a"), filters))
         self.assertFalse(matches_filters(Listing(source=Portal.ZONAPROP, source_url="https://www.zonaprop.com.ar/b", url="https://www.zonaprop.com.ar/b", title="Monoambiente", price="800000", currency="ARS", covered_m2="30"), filters))
 
+    def test_applies_bedroom_bathroom_area_mode_and_amenity_filters(self):
+        detailed_listing = Listing(
+            source=Portal.ZONAPROP,
+            source_url="https://www.zonaprop.com.ar/a",
+            url="https://www.zonaprop.com.ar/a",
+            title="Departamento Palermo",
+            address="Palermo",
+            bedrooms="1",
+            bathrooms="2",
+            covered_m2="38",
+            total_m2="45",
+            details="Balcón, pileta y ascensor",
+        )
+        filters = SearchFilters(area_mode="total", min_m2="40", min_bedrooms=1, max_bathrooms=2, amenities=["balcon", "pileta"])
+
+        self.assertTrue(matches_filters(detailed_listing, filters))
+        self.assertFalse(matches_filters(detailed_listing, SearchFilters(amenities=["lavadero"])))
+
     def test_requires_more_than_twenty_square_meters_as_minimum(self):
         with self.assertRaises(ValueError):
             SearchFilters(min_m2="20")

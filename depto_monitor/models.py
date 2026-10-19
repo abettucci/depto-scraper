@@ -4,7 +4,7 @@ import hashlib
 import re
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -61,13 +61,19 @@ class SearchFilters(BaseModel):
     min_price: Decimal | None = Field(default=None, ge=0, le=99_999_999_999)
     max_price: Decimal | None = Field(default=None, ge=0, le=99_999_999_999)
     currency: str = Field(default="ARS", pattern=r"^(ARS|USD)$")
+    area_mode: Literal["covered", "total"] = "covered"
     min_rooms: int | None = Field(default=None, ge=1, le=100)
     max_rooms: int | None = Field(default=None, ge=1, le=100)
+    min_bedrooms: int | None = Field(default=None, ge=0, le=30)
+    max_bedrooms: int | None = Field(default=None, ge=0, le=30)
+    min_bathrooms: int | None = Field(default=None, ge=0, le=30)
+    max_bathrooms: int | None = Field(default=None, ge=0, le=30)
     min_m2: Decimal | None = Field(default=None, gt=20, le=10_000)
     max_m2: Decimal | None = Field(default=None, ge=1, le=10_000)
     max_expenses: Decimal | None = Field(default=None, ge=0, le=99_999_999_999)
     pets_allowed: bool | None = None
     parking: bool | None = None
+    amenities: list[Literal["ascensor", "internet", "seguridad", "limpieza", "laundry", "gimnasio", "parrilla", "pileta", "solarium", "hidromasaje", "sala_juegos", "cocina", "living_comedor", "balcon", "lavadero", "toilette"]] = Field(default_factory=list, max_length=16)
     radius_km: Decimal | None = Field(default=None, gt=0, le=100)
     center_lat: Decimal | None = Field(default=None, ge=-90, le=90)
     center_lng: Decimal | None = Field(default=None, ge=-180, le=180)
@@ -115,6 +121,10 @@ class SearchFilters(BaseModel):
             raise ValueError("min_price no puede superar max_price")
         if self.min_rooms is not None and self.max_rooms is not None and self.min_rooms > self.max_rooms:
             raise ValueError("min_rooms no puede superar max_rooms")
+        if self.min_bedrooms is not None and self.max_bedrooms is not None and self.min_bedrooms > self.max_bedrooms:
+            raise ValueError("min_bedrooms no puede superar max_bedrooms")
+        if self.min_bathrooms is not None and self.max_bathrooms is not None and self.min_bathrooms > self.max_bathrooms:
+            raise ValueError("min_bathrooms no puede superar max_bathrooms")
         if self.min_m2 is not None and self.max_m2 is not None and self.min_m2 > self.max_m2:
             raise ValueError("min_m2 no puede superar max_m2")
         if (self.center_lat is None) != (self.center_lng is None):
@@ -155,11 +165,13 @@ class Listing(BaseModel):
     expenses: Decimal | None = Field(default=None, ge=0, le=99_999_999_999)
     rooms: Decimal | None = Field(default=None, ge=0, le=30)
     bedrooms: Decimal | None = Field(default=None, ge=0, le=30)
+    bathrooms: Decimal | None = Field(default=None, ge=0, le=30)
     covered_m2: Decimal | None = Field(default=None, ge=0, le=10_000)
     total_m2: Decimal | None = Field(default=None, ge=0, le=10_000)
     latitude: Decimal | None = Field(default=None, ge=-90, le=90)
     longitude: Decimal | None = Field(default=None, ge=-180, le=180)
     image_url: str | None = Field(default=None, max_length=2048)
+    details: str | None = Field(default=None, max_length=1_600)
 
     @model_validator(mode="after")
     def validate_destination(self) -> "Listing":

@@ -198,7 +198,15 @@ def filter_rejection_reason(listing: Listing, filters: SearchFilters) -> str | N
         return "rooms_min"
     if filters.max_rooms is not None and (listing.rooms is None or listing.rooms > filters.max_rooms):
         return "rooms_max"
-    area = listing.covered_m2 or listing.total_m2
+    if filters.min_bedrooms is not None and (listing.bedrooms is None or listing.bedrooms < filters.min_bedrooms):
+        return "bedrooms_min"
+    if filters.max_bedrooms is not None and (listing.bedrooms is None or listing.bedrooms > filters.max_bedrooms):
+        return "bedrooms_max"
+    if filters.min_bathrooms is not None and (listing.bathrooms is None or listing.bathrooms < filters.min_bathrooms):
+        return "bathrooms_min"
+    if filters.max_bathrooms is not None and (listing.bathrooms is None or listing.bathrooms > filters.max_bathrooms):
+        return "bathrooms_max"
+    area = listing.covered_m2 if filters.area_mode == "covered" else listing.total_m2
     if filters.min_m2 is not None and (area is None or area < filters.min_m2):
         return "area_min"
     if filters.max_m2 is not None and (area is None or area > filters.max_m2):
@@ -209,6 +217,10 @@ def filter_rejection_reason(listing: Listing, filters: SearchFilters) -> str | N
         return "pets"
     if filters.parking is True and not any(term in (listing.title + " " + (listing.address or "")).lower() for term in ("cochera", "garage", "garaje")):
         return "parking"
+    searchable_text = normalize_text(f"{listing.title} {listing.address or ''} {listing.details or ''}")
+    for amenity in filters.amenities:
+        if not any(term in searchable_text for term in _amenity_terms(amenity)):
+            return "amenities"
     if not _inside_polygon(listing, filters.polygon_geojson):
         return "polygon"
     return None
@@ -231,6 +243,19 @@ def _location_terms(location: str) -> tuple[str, ...]:
 
 def _normalized_location(location: str) -> str:
     return normalize_text(location)
+
+
+def _amenity_terms(amenity: str) -> tuple[str, ...]:
+    terms = {
+        "ascensor": ("ascensor",), "internet": ("internet", "wifi", "wi fi"),
+        "seguridad": ("seguridad", "vigilancia", "encargado"), "limpieza": ("limpieza",),
+        "laundry": ("laundry",), "gimnasio": ("gimnasio", "gym"), "parrilla": ("parrilla",),
+        "pileta": ("pileta", "piscina"), "solarium": ("solarium",),
+        "hidromasaje": ("hidromasaje", "jacuzzi"), "sala_juegos": ("sala de juegos",),
+        "cocina": ("cocina",), "living_comedor": ("living comedor", "living", "comedor"),
+        "balcon": ("balcon", "balcón"), "lavadero": ("lavadero",), "toilette": ("toilette",),
+    }
+    return terms[amenity]
 
 
 def _between(value: Decimal | int | None, minimum: Decimal | int | None, maximum: Decimal | int | None) -> bool:
