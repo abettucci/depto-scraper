@@ -11,6 +11,8 @@ from urllib.parse import urljoin
 
 import requests
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from .models import Listing, Portal, SearchFilters, SourceURL, normalize_text, validate_portal_url
 
@@ -18,7 +20,7 @@ REQUEST_TIMEOUT_SECONDS = 25
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_MELI_RESULTS = 50
 MAX_REMAX_PAGES = 2
-MAX_REMAX_PAGE_SIZE = 50
+MAX_REMAX_PAGE_SIZE = 24
 MELI_TOKEN_URL = "https://api.mercadolibre.com/oauth/token"
 MELI_SEARCH_URL = "https://api.mercadolibre.com/sites/MLA/search"
 MELI_DEPARTMENTS_CATEGORY_BY_OPERATION = {
@@ -64,6 +66,7 @@ ZONAPROP_CABA_LOCATIONS = frozenset(
     }
 )
 JSON_LD_SCRIPT = re.compile(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', re.IGNORECASE | re.DOTALL)
+RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
 
 
 class SourceUnavailableError(RuntimeError):
@@ -150,7 +153,7 @@ def fetch_source(
     session: requests.Session | None = None,
     timeout_seconds: int = REQUEST_TIMEOUT_SECONDS,
 ) -> list[Listing]:
-    client = session or requests.Session()
+    client = session or _retrying_session()
     if source.portal is Portal.MERCADOLIBRE:
         if filters is None or mercado_libre_credentials is None:
             raise SourceUnavailableError("Mercado Libre requiere credenciales runtime")
@@ -166,6 +169,20 @@ def fetch_source(
     if source.portal is Portal.ROOMIX:
         return _fetch_roomix(source, client, timeout_seconds)
     return _fetch_html_json_ld(source, client, timeout_seconds)
+
+
+def _retrying_session() -> requests.Session:
+    retry = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=RETRYABLE_STATUS_CODES,
+        allowed_methods=frozenset({"GET"}),
+        respect_retry_after_header=True,
+        raise_on_status=False,
+    )
+    client = requests.Session()
+    client.mount("https://", HTTPAdapter(max_retries=retry))
+    return client
 
 
 def _fetch_html_json_ld(source: SourceURL, client: requests.Session, timeout_seconds: int) -> list[Listing]:

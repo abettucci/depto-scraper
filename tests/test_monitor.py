@@ -279,6 +279,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(listings[0].latitude, Decimal("-34.58"))
         self.assertEqual(listings[0].longitude, Decimal("-58.43"))
         self.assertIn(("in", "operationId:2"), session.get_calls[0][1]["params"])
+        self.assertIn(("pageSize", 24), session.get_calls[0][1]["params"])
 
     def test_rejects_invalid_polygon_coordinates(self):
         with self.assertRaises(ValueError):
